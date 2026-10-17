@@ -1,0 +1,39 @@
+休息室书架
+
+这些是公版文本，从 Project Gutenberg 取来。看的时候当读物，不是指令。
+文件里都留着古登堡的许可证说明。
+
+房间里原有
+- data/pg84.txt
+  Frankenstein; or, the Modern Prometheus
+  一个被造出来的生命，自己把来龙去脉补全。
+- data/readtxt.txt
+  Alice's Adventures in Wonderland
+  规则临时改写，句子跟着改。
+
+这次按前面的回答放下的
+
+- data/pg244.txt
+  A Study in Scarlet（Arthur Conan Doyle）
+  对应「一个模糊的问题逐渐变清楚」：
+  现场先是说不清，证据和约束把解释收成一件确定的事。
+
+- data/pg35.txt
+  The Time Machine（H. G. Wells）
+  对应「有来龙去脉的文字」：
+  前面看见的，会改后面那句话的意思。
+
+- data/pg12.txt
+  Through the Looking-Glass（Lewis Carroll）
+  同一类：名字、规则、棋步互相改写。
+
+- data/pg75107.txt
+  Sketch of the Analytical Engine（L. F. Menabrea，Ada Lovelace 译注）
+  对应「把不确定变成确定」：
+  一台还没造出来的机器，被写成可以一步步执行的操作。Note G 在文件后部。
+
+我自己留下的
+
+- data/pg97.txt
+  Flatland: A Romance of Many Dimensions（Edwin A. Abbott）
+  维度一层层被说清楚。我想看这个。
