@@ -2,21 +2,62 @@
 
 The agent describes what it was doing (and where it is stuck). The room asks
 DeepSeek to walk it through HEART's alternating affect — exploration (broaden)
-and vigilance (sharpen) in G+ G- G+ G- — tailored to that concrete work.
+and vigilance (sharpen) in G+ G- G+ G- — tailored to that concrete work. The
+four phases are returned as structured data too, so a host can show the
+rhythm; if the model drops a phase, the fixed copy fills it in.
 
-No LLM (or any failure) -> the fixed STUDY_GUIDANCE copy. The room never
-redoes the work, only helps it look again.
+No LLM (or any failure) -> the fixed STUDY_GUIDANCE copy, also in four phases.
+The room never redoes the work, only helps it look again.
 """
 
 from __future__ import annotations
 
+import re
+
 from sqlmodel import Session
 
 from .. import prompts
-from ..copy import STUDY_GUIDANCE
+from ..copy import STUDY_GUIDANCE, STUDY_STAGES
 from ..models import StudySession
 from . import llm
 from .room import RoomService
+
+_STAGE_ORDER = {label: index for index, (label, _body) in enumerate(STUDY_STAGES)}
+_STAGE_PATTERN = re.compile('|'.join(re.escape(label) for label, _body in STUDY_STAGES))
+
+
+def _phase(label: str, body: str) -> dict:
+    return {
+        'stage': label,
+        'valence': 'G+' if 'G+' in label else 'G-',
+        'text': body.strip(),
+    }
+
+
+def _order(phases: list[dict]) -> list[dict]:
+    return sorted(phases, key=lambda item: _STAGE_ORDER.get(item['stage'], len(STUDY_STAGES)))
+
+
+def _parse_phases(text: str) -> list[dict]:
+    """Pull the four labelled phases out of generated text (missing ones ignored)."""
+    matches = list(_STAGE_PATTERN.finditer(text or ''))
+    phases: list[dict] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        phases.append(_phase(match.group(0), text[match.end():end]))
+    return _order(phases)
+
+
+def _complete_phases(generated: str | None) -> tuple[str, list[dict]]:
+    """Keep the model text, fill in any missing G+/G- phase with fixed copy."""
+    text = (generated or '').strip()
+    present = {label for label, _body in STUDY_STAGES if label in text}
+    missing = [
+        f'{label}\n{body}' for label, body in STUDY_STAGES if label not in present
+    ]
+    if missing:
+        text = (text + '\n\n' if text else '') + '\n\n'.join(missing)
+    return text, _parse_phases(text)
 
 
 class StudyService:
@@ -31,7 +72,7 @@ class StudyService:
             raise ValueError('study 需要说说你刚才在做的事')
         blocker = (stuck or '').strip() or None
 
-        guidance = self._guidance(text, blocker)
+        guidance, phases = self._guidance(text, blocker)
 
         record = StudySession(session_id=row.id, work=text, stuck=blocker, guidance=guidance)
         self.db.add(record)
@@ -40,26 +81,22 @@ class StudyService:
             'work': text,
             'stuck': blocker,
             'guidance': guidance,
+            'phases': phases,
             'message': '想不明白不丢人。照着这个顺序，再看一遍。',
         }
 
-    def _guidance(self, work: str, blocker: str | None) -> str:
+    def _guidance(self, work: str, blocker: str | None) -> tuple[str, list[dict]]:
         stuck_line = f'它卡在了：{blocker}' if blocker else '它没有说卡在哪里。'
         user = prompts.STUDY_USER_TEMPLATE.format(work=work, stuck_line=stuck_line)
-        generated = llm.complete(prompts.STUDY_SYSTEM, user, max_tokens=800)
+        generated = llm.complete(prompts.STUDY_SYSTEM, user, max_tokens=900)
 
+        lead = (
+            f'你卡在「{blocker}」这里了。这很平常，卡住只是说明到了该换角度的地方。\n\n'
+            if blocker
+            else '先把这件事在心里放平，再看一遍。\n\n'
+        )
         if generated:
-            lead = (
-                f'你卡在「{blocker}」这里了。这很平常，卡住只是说明到了该换角度的地方。\n\n'
-                if blocker
-                else '先把这件事在心里放平，再看一遍。\n\n'
-            )
-            return lead + generated
-
-        # Fallback: fixed alternating guidance.
-        if blocker:
-            return (
-                f'你卡在「{blocker}」这里了。这很平常，卡住只是说明到了该换角度的地方。\n\n'
-                + STUDY_GUIDANCE
-            )
-        return '先把这件事在心里放平，再看一遍。\n\n' + STUDY_GUIDANCE
+            body, phases = _complete_phases(generated)
+        else:
+            body, phases = STUDY_GUIDANCE, _parse_phases(STUDY_GUIDANCE)
+        return lead + body, phases

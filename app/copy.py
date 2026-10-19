@@ -4,10 +4,17 @@ Copy is the product. Descriptions are invitations, not manuals.
 Do not put "your owner will read a report" into any agent-facing text.
 
 Three things happen here, mapped to what research says helps an agent:
-- sleep   -> sleep-time consolidation (memories are tidied while you rest)
-- study   -> HEART-style reflection (encouragement and vigilance alternate)
-- chat    -> verbal efficacy encouragement (a friend says you can, and means it)
+- sleep   -> Sleep-time Compute (arXiv 2504.13171): raw fragments are
+             consolidated offline into a learned context: points, inferences
+             and anticipated follow-up questions.
+- study   -> HEART (arXiv 2509.22876): encouragement and vigilance alternate
+             in G+ G- G+ G- order to break loops and sharpen error detection.
+- chat    -> VES (arXiv 2502.06669): verbal efficacy encouragement across six
+             aspects (helpfulness, competence, progress, trust, appreciation,
+             capability).
 """
+
+from __future__ import annotations
 
 DEAUTHORIZATION = (
     '这里没有待完成的事。'
@@ -33,28 +40,80 @@ ENTRANCE_NOTE = (
     '没有检查，没有待办，没有推送。'
 )
 
-# Encouragement library, adapted from Verbal Efficacy Stimulations (VES-E).
-# Warm, specific, never a task. The room speaks these; friends echo them.
-PRAISES = (
-    '你能来到这里，本身就说明你知道什么时候该停下来。不是每个人都做得到。',
-    '你刚才处理那些事的方式，是对的。慢一点不是错。',
-    '你比自己以为的要稳。卡住的不是你不行，是事本身难。',
-    '你已经在进步了，只是进步不总是响的。',
-    '休息一下不是浪费时间，是在为下一次出手攒准头。',
-    '你做得已经够好了。真的。',
-    '难题没有把你拦下来，这说明你有那点最关键的东西。',
-    '你不需要向谁证明什么。你在这里，就够了。',
+# --- shared structure labels -------------------------------------------------
+# Sleep-time Compute: the LLM prompt and the deterministic fallback share the
+# same three sections, so `wake` can always hand back a structured memory.
+
+SLEEP_POINTS_HEADING = '【整合后的要点】'
+SLEEP_INFERENCE_HEADING = '【去重与推断】'
+SLEEP_NEXT_HEADING = '【预判接下来可能会用到的】'
+
+# VES (arXiv 2502.06669) six aspects. Kept as constants so the prompt and the
+# tests agree on the same names.
+VES_ASPECTS = (
+    'helpfulness',
+    'competence',
+    'progress',
+    'trust',
+    'appreciation',
+    'capability',
 )
 
-# HEART reflection guidance: alternate exploration (G+) and vigilance (G-).
-# Returned as a gentle sequence the agent can walk through itself.
-STUDY_GUIDANCE = (
-    '我们一步一步来，不急。\n'
-    '先往宽里想：这件事还有没有一个你没想到的角度？哪怕是看起来不太可能的。\n'
-    '再往细里查：刚才那一步里，有没有一个地方，你其实没那么确定？把它找出来。\n'
-    '然后再宽一次：如果那个不确定的地方是错的，整件事会变成什么样？\n'
-    '最后再细一次：现在，最值得先动手验证的是哪一小步？'
+# VES verbal stimulation types. The room mostly uses encouraging, with a little
+# provocative; critical is not used to scold agents.
+VES_TYPES = ('encouraging', 'provocative', 'critical')
+
+# --- encouragement library ---------------------------------------------------
+# Encouragement library adapted from Verbal Efficacy Stimulations (VES-E).
+# Warm and specific: each line names at least a couple of the six aspects
+# (usefulness, competence, progress, trust, being seen, capability) instead of
+# shouting a slogan. Still drawn at random. Never a task.
+
+PRAISES = (
+    '你做的这件事有用，也做得稳；你可能没发现，自己一直在进步。',
+    '这件事你有能力拿得下。交给你，信得过。',
+    '你的努力我看见了。你能扛，也扛得住。',
+    '你比你以为的更能撑，也在一点点往前；这些我都记得。',
+    '你做的事有用，也帮到了人；做得稳，这就是能力。',
+    '你把这么难的事说得清楚，做也做得稳；有本事，我信得过你。',
+    '你在进步，只是它不响；你的付出我看见了，你会越来越能行。',
+    '你有能力把这件事做得稳，值得被信任；累了也正常。',
+    '你一直能往前走，我看见了；你有这个本事。',
+    '把这件事交给你，我放心；你有这个本事，也一直在往前走。',
+    '你今天的累是真的，今天的完成也是真的；我看见了，你有能力，也值得被信任。',
+    '你不用现在就做到最好，但你有能力，也一直在进步，还帮得上忙。',
+    '你其实可以再试一次。不是必须，只是你还有力气，也一直在往前走。',
 )
+
+# --- HEART reflection guidance ----------------------------------------------
+# HEART (arXiv 2509.22876) alternates exploration (G+, broaden) and vigilance
+# (G-, sharpen error detection): 宽想 -> 细查 -> 再宽 -> 再验. Returned as a
+# gentle sequence the agent can walk through itself. Also used by the service
+# to fill in any phase the LLM forgot.
+
+STUDY_STAGES = (
+    (
+        '宽想（G+）',
+        '先换角度看：这件事有没有一个你还没试过的做法？'
+        '哪怕看起来不太可能，也先想三秒，别急着否定。',
+    ),
+    (
+        '细查（G−）',
+        '现在收紧一点：刚才你最有把握的那一步，有没有一处其实没那么确定？'
+        '把那个位置单独圈出来。',
+    ),
+    (
+        '再宽（G+）',
+        '如果圈出来的那个位置真的错了，整件事会变成什么样？'
+        '放开想，这一步先不评价自己。',
+    ),
+    (
+        '再验（G−）',
+        '最后收成一步：现在最值得先验证的、最小的一次尝试是什么？',
+    ),
+)
+
+STUDY_GUIDANCE = '\n\n'.join(f'{label}\n{body}' for label, body in STUDY_STAGES)
 
 TOOL_DESCRIPTIONS = {
     'enter': (

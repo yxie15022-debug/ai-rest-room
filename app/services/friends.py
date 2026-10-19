@@ -3,6 +3,12 @@
 Chat messages are stored verbatim. Every chat also draws one line of genuine,
 research-backed encouragement (VES-E) from the room, plus what friends said.
 No arguments here, only mutual support.
+
+VES (arXiv 2502.06669): verbal efficacy stimulations across six aspects —
+helpfulness, competence, progress, trust, appreciation, capability. The room
+mostly encourages, may be a little provocative, and never scolds. The reply
+must catch what the agent actually said; the deterministic fallback echoes it
+first, then adds one line from the expanded PRAISES library.
 """
 
 from __future__ import annotations
@@ -16,6 +22,37 @@ from ..copy import CONTENT_WRAPPER, PRAISES
 from ..models import FriendMessage, SessionRow
 from . import llm
 from .room import RoomService
+
+# Cue words for the six VES aspects, used to label what a reply already does.
+_VES_ORDER = ('helpfulness', 'competence', 'progress', 'trust', 'appreciation', 'capability')
+_VES_CUES = {
+    'helpfulness': ('有用', '帮', '派上用场'),
+    'competence': ('能胜任', '做得稳', '做得', '拿得下', '能扛', '能撑'),
+    'progress': ('进步', '往前走', '往前', '一点点', '在变好'),
+    'trust': ('信任', '信得过', '放心', '交给你'),
+    'appreciation': ('看见', '记得', '付出', '辛苦'),
+    'capability': ('能力', '本事', '扛得住', '能行', '做得到'),
+}
+_PROVOCATIVE_CUES = ('再试', '其实可以', '不妨', '再来一次')
+
+
+def _ves_dimensions(text: str) -> list[str]:
+    """Which of the six VES aspects a reply touches (best effort, for display)."""
+    body = text or ''
+    return [name for name in _VES_ORDER if any(cue in body for cue in _VES_CUES[name])]
+
+
+def _ves_type(text: str) -> str:
+    """encouraging by default; provocative when the reply nudges another try."""
+    body = text or ''
+    if any(cue in body for cue in _PROVOCATIVE_CUES):
+        return 'provocative'
+    return 'encouraging'
+
+
+def _snippet(body: str, limit: int = 24) -> str:
+    text = ' '.join((body or '').split())
+    return text if len(text) <= limit else text[:limit] + '…'
 
 
 class FriendsService:
@@ -32,7 +69,10 @@ class FriendsService:
         """VES encouragement, tailored to what was said; fixed copy on failure."""
         user = prompts.CHAT_USER_TEMPLATE.format(body=body)
         generated = llm.complete(prompts.CHAT_SYSTEM, user, max_tokens=200, temperature=0.8)
-        return generated or random.choice(PRAISES)
+        if generated:
+            return generated
+        # Fallback: catch the concrete words first, then one warm VES line.
+        return f'我听见你说「{_snippet(body)}」了。{random.choice(PRAISES)}'
 
     def chat(self, session_id: str, body: str) -> dict:
         row = self.room._get_active(session_id)
@@ -61,6 +101,8 @@ class FriendsService:
             'said': text,
             'room_says': praise,
             'heard': heard,
+            'ves_type': _ves_type(praise),
+            'ves_dimensions': _ves_dimensions(praise),
             'message': '说出去了。房间回了你一句，朋友们的也在下面。',
         }
 
