@@ -1,0 +1,4 @@
+# Tooling for the animation assets, previews and the local plugin window.
+# The server itself does not import any of these.
+-r requirements.txt
+Pillow>=10

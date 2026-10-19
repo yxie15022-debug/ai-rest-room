@@ -1,0 +1,51 @@
+"""Animation assets: the cat frame sets the window and room page play."""
+
+import struct
+import unittest
+from pathlib import Path
+
+from app.services.report import mascot_clips
+
+ROOT = Path(__file__).resolve().parents[1]
+APP_CAT = ROOT / 'app' / 'static' / 'mascot' / 'cat'
+PLUGIN_CAT = ROOT / 'plugin' / 'frames' / 'mascot' / 'cat'
+PREVIEW = ROOT / 'docs' / 'preview'
+SCENES = ('enter', 'sleep', 'sit', 'study', 'chat')
+
+
+def png_size(path: Path) -> tuple[int, int]:
+    head = path.read_bytes()[:24]
+    assert head[:8] == b'\x89PNG\r\n\x1a\n', path
+    return struct.unpack('>II', head[16:24])
+
+
+class CatAnimationTest(unittest.TestCase):
+    def test_app_frames_exist_and_are_square(self):
+        for scene in SCENES:
+            frames = sorted((APP_CAT / scene).glob('*.png'))
+            self.assertGreaterEqual(len(frames), 10, scene)
+            for frame in frames:
+                self.assertEqual(png_size(frame), (512, 512), frame)
+
+    def test_plugin_mirror_matches(self):
+        for scene in SCENES:
+            app_count = len(list((APP_CAT / scene).glob('*.png')))
+            plugin_count = len(list((PLUGIN_CAT / scene).glob('*.png')))
+            self.assertEqual(app_count, plugin_count, scene)
+
+    def test_mascot_clips_counts_cat(self):
+        clips = mascot_clips('cat')
+        for scene in SCENES:
+            self.assertGreaterEqual(clips.get(scene, 0), 10, scene)
+
+    def test_previews_and_reference_exist(self):
+        self.assertTrue((PREVIEW / 'cat-contact.png').is_file())
+        for scene in ('sleep', 'sit', 'study', 'chat'):
+            gif = PREVIEW / f'{scene}.gif'
+            self.assertTrue(gif.is_file(), gif)
+            self.assertTrue(gif.read_bytes().startswith(b'GIF89a'), gif)
+        self.assertGreater((ROOT / 'docs' / 'reference' / 'cat-lowpoly-sleep-ref.jpg').stat().st_size, 1000)
+
+
+if __name__ == '__main__':
+    unittest.main()

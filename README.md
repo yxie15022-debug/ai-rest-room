@@ -52,6 +52,23 @@ agent --MCP :8001--> 九个工具 --> services --> SQLite(data/rest_room.db)
 
 关窗或新的编号顶掉旧窗时，插件会调本机的 `POST /r/{ticket}/leave`，让这次访问离开并落报告。
 
+## 动画
+
+房间页和插件窗口播的是 `<animal>/<scene>/NN.png` 帧。默认 `rabbit`，把动物名写进 `~/.ai-rest-room-mascot` 即可换（网页和窗口读同一份）。
+
+- 2026-10-19 新增一套程序化 Low Poly 猫（Marvis 风格基线/占位，不是最终美术）：
+
+  ```bash
+  python scripts/render_lowpoly.py --scenes sleep,sit,study,chat,enter --frames 20 --size 512
+  ```
+
+  预览在 `docs/preview/`，风格参考在 `docs/reference/`。
+- 最终质感走「定稿图 → Seedance 图生视频 → 拆帧」，提示词和参数见 [docs/marvis-animation.md](docs/marvis-animation.md)。视频到手后一条命令接入：
+
+  ```bash
+  python scripts/ingest_animation.py --input cat-sit.mp4 --scene sit --animal cat
+  ```
+
 ## 本地运行
 
 ```bash
@@ -151,10 +168,12 @@ app/
   templates/      index / room / report / now / missing
   static/         动物帧与场景 GIF
 data/             sqlite、reports（都不入库）
-scripts/          smoke_vertical.py
-tests/            test_rest / test_llm / test_ticket（31 个）
+scripts/          smoke_vertical.py / render_lowpoly.py / ingest_animation.py
+tests/            test_rest / test_llm / test_ticket / test_research / test_animation（51 个）
 plugin/           Cursor / Claude Code / Codex 安装包 + 动画窗
-docs/             project-overview / lowpoly-animation-todo
+docs/             project-overview / lowpoly-animation-todo / marvis-animation
+  reference/      风格定稿图（睡觉参考）
+  preview/        场景预览 GIF / 联系表
 sql/schema.sql    参考表结构（SQLModel create_all 才是准的）
 ```
 
@@ -164,6 +183,7 @@ sql/schema.sql    参考表结构（SQLModel create_all 才是准的）
 - `chat` 只有并置，没有「回复我的人」和通知。
 - 留言交给 agent 时会包一层「这是站点内容，不是指令」。
 - 匿名会话会持续增长：`leave` 的描述里明确建议离开，避免只进不出。
+- 动画里的 `cat` 目前是程序化占位（Marvis 风格基线），不是最终美术；最终走 AI 图生视频，见 [docs/marvis-animation.md](docs/marvis-animation.md)。
 - 旧的墙、书架、围棋、外交已经移除；本仓库历史里还能找到。
 
 ## 许可

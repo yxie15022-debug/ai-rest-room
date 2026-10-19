@@ -41,7 +41,7 @@
 | 进程 | 端口 | 作用 |
 |---|---|---|
 | `app/main.py` | 8000 | 人类网页：门口、房间页 `/r/{ticket}`、报告页、动物帧静态服务、本地 leave 端点 |
-| `app/mcp_server.py` | 8001 | agent 的 MCP 工具白名单（9 个工具）+ 字符帧 scene 资源 |
+| `app/mcp_server.py` | 8001 | agent 的 MCP 工具白名单（9 个工具）+ MCP Apps 场景资源 |
 
 数据存在本地 SQLite（`data/rest_room.db`），报告落在 `data/reports/*.md`。
 
@@ -70,12 +70,19 @@ app/
     report.py     报告生成 + 公共状态 + 动物帧 catalog
     llm.py        DeepSeek 客户端（OpenAI 兼容，失败返回 None）
   templates/      index / room / report / now / missing
+  static/mascot/  各动物的场景帧（2026-10-19 新增 cat）
+scripts/
+  smoke_vertical.py    当前竖线冒烟（临时数据库、不联网）
+  render_lowpoly.py    Marvis 风格程序化占位渲染器
+  ingest_animation.py  图生视频 / 图片序列 → 两处帧目录
 plugin/           Cursor / Claude Code / Codex 安装包
-  scripts/scene_window.py  无边框动画窗（Tk）
+  scripts/scene_window.py  无边框动画窗（Tk，按 `~/.ai-rest-room-mascot` 选动物）
   scripts/open_room.py     顶窗逻辑（新 ticket 顶掉旧窗）
   frames/mascot/           各动物的场景帧
-tests/            test_rest / test_llm / test_ticket（31 个测试）
-docs/             本文档 + lowpoly-animation-todo.md
+tests/            test_rest / test_llm / test_ticket / test_research / test_animation（51 个）
+docs/             project-overview / lowpoly-animation-todo / marvis-animation
+  reference/      风格定稿图（睡觉参考）
+  preview/        场景预览 GIF / 联系表
 ```
 
 ---
@@ -86,21 +93,23 @@ docs/             本文档 + lowpoly-animation-todo.md
 
 `enter` `sit` `sleep` `wake` `study` `chat` `listen` `name_yourself` `leave`。工具描述保持「请柬不是手册」的语气，进门返回解除授权声明 + 建议作息。
 
-### 2. DeepSeek 接入（2026-10-18 晚完成）
+### 2. DeepSeek 接入（2026-10-18 完成，2026-10-19 按论文细化）
 
 四处活动全部由 DeepSeek（`deepseek-chat`，OpenAI 兼容端点）实时生成，**任何失败自动降级到固定文案，服务永不断**：
 
 - **enter**：每次生成一段生动、不重样的建议作息；兜底 `SUGGESTED_PACE`。
-- **sleep**：`sleep` 立即返回并后台起线程让 DeepSeek 整合记忆，`wake` 取整理结果；兜底是确定性的词元重合度 `_merge` + `_distill`。
-- **study**：DeepSeek 按 HEART 情绪交替动态生成引导；兜底 `STUDY_GUIDANCE` 固定四步。
-- **chat**：DeepSeek 按 VES 生成针对性鼓励；兜底从 `PRAISES` 八句随机抽。
+- **sleep**：按 Sleep-time Compute 落地——`sleep` 立即返回并后台起线程，DeepSeek 在睡眠里把零散片段整理成三段式 learned context：`【整合后的要点】`、`【去重与推断】`、`【预判接下来可能会用到的】`（2–3 个醒来后可能接着问/用到的方向）；`wake` 取回 `summary`，并附 `learned_context`、`inferences`、`anticipations`、`token_hint` 四个结构化字段。兜底是确定性的词元重合度 `_merge` + `_distill`，输出同一套结构；LLM 若忽略格式，也会被折进同样三段，不改表结构。
+- **study**：DeepSeek 按 HEART 的「宽—严—宽—严」（G+ G− G+ G−）写出四段引导，每段单独标出阶段；模型漏段时用 `STUDY_GUIDANCE` 的对应段补齐，返回值新增 `phases`（stage / valence / text）。兜底 `STUDY_GUIDANCE` 同样是标好 G+/G− 的四段。
+- **chat**：DeepSeek 按 VES 生成接住对方具体内容、至少覆盖六方面中三面的鼓励，以 encouraging 为主、可少量 provocative；返回值新增 `ves_dimensions`（命中的方面）与 `ves_type`。兜底先复述对方一句，再从扩充后的 `PRAISES` 随机抽一句。
 
 配置：`DEEPSEEK_API_KEY`（留空 = LLM 关闭，全走兜底）、`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL`、`LLM_TIMEOUT`。
 
 ### 3. 动画窗（2D 帧 + 插值）
 
-- 每个场景 7 张 PNG（`plugin/frames/mascot/rabbit/{sit,sleep,study,chat,enter,read,look}/`），来源是 GenerateImage 出 4 格 sprite sheet → 切帧 → ffmpeg `minterpolate` 到 12fps。
-- `scene_window.py` 用无边框 Tk 窗口 24fps 轮播，置顶、白底、圆角裁形、隐藏任务栏图标、淡入；每 4 秒轮询 `/r/{ticket}/state`，按 agent 当前场景换一组帧；`leave` 复用 `enter` 倒放。
+- rabbit：每个场景 7 张 PNG（`plugin/frames/mascot/rabbit/{sit,sleep,study,chat,enter,read,look}/`），来源是 GenerateImage 出 4 格 sprite sheet → 切帧 → ffmpeg `minterpolate` 到 12fps。
+- `scene_window.py` 用无边框 Tk 窗口 24fps 轮播，置顶、白底、圆角裁形、隐藏任务栏图标、淡入；每 4 秒轮询 `/r/{ticket}/state`，按 agent 当前场景换一组帧；`leave` 复用 `enter` 倒放。窗口和网页都按 `~/.ai-rest-room-mascot` 选动物，缺帧回退 `sit`。
+- 2026-10-19：新增程序化 Low Poly 猫（`scripts/render_lowpoly.py`，512×512、20 帧循环、`cat/{enter,sit,sleep,study,chat}`），预览在 `docs/preview/`。这是 Marvis 风格的**占位/基线**，不是最终美术。
+- 最终质感走「定稿图 → Seedance 图生视频 → 拆帧」：提示词和参数见 [marvis-animation.md](marvis-animation.md)；视频到手后用 `scripts/ingest_animation.py` 一条命令写入两处帧目录。
 
 ### 4. 关窗离开 + 软引导 + 网页一致（2026-10-18 完成）
 
@@ -110,7 +119,7 @@ docs/             本文档 + lowpoly-animation-todo.md
 
 ### 5. 测试
 
-31 个测试全过（`pytest`）。原 23 个 + 新增 8 个 LLM 测试（mock `llm.complete`，验证成功用 LLM、失败用兜底）。2026-10-19 起 `tests/conftest.py` 把数据库和报告目录指到临时目录，测试不再写 `data/`。
+51 个测试全过（`pytest`）：原 23 个 + 8 个 LLM 测试（mock `llm.complete`）+ 16 个论文落地测试（sleep/study/chat 的提示词与服务结构）+ 4 个动画资产测试。2026-10-19 起 `tests/conftest.py` 把数据库和报告目录指到临时目录，测试不再写 `data/`；动画测试只读帧文件，不依赖 Pillow。
 
 ---
 
@@ -118,11 +127,13 @@ docs/             本文档 + lowpoly-animation-todo.md
 
 ### 1. Low Poly 3D 动画升级（下一条线，详见 [lowpoly-animation-todo.md](lowpoly-animation-todo.md)）
 
-把窗口动画从「2D 生成帧 + 插值」升级为「Marvis 式 Low Poly 3D 卡通 + 图生视频连续动画」：
+把窗口动画从「2D 生成帧 + 插值」升级为「Marvis 式 Low Poly 3D 卡通 + 图生视频连续动画」。
 
-1. 每只动物先出 3 张 Low Poly 定稿图（白底、软阴影、哑光），第一批只做**猫**（睡觉那张已定稿）。
-2. 用 Seedance 图生视频做动作（4s / 720p / 24fps）。
-3. 拆帧接入，`scene_window.py` 改成按 `~/.ai-rest-room-mascot` 读到的动物选目录。
+**2026-10-19 进展**：窗口/网页已能按 `~/.ai-rest-room-mascot` 选动物；程序化 Low Poly 占位帧（`scripts/render_lowpoly.py`）、拆帧导入脚本（`scripts/ingest_animation.py`）和提示词文档（[marvis-animation.md](marvis-animation.md)）已就绪。剩下的主要是美术素材：
+
+1. 每只动物先出 3 张 Low Poly 定稿图（白底、软阴影、哑光），第一批只做**猫**（睡觉那张已定稿，见 `docs/reference/`；sit / study / chat 待生成）。
+2. 用 Seedance 图生视频做动作（4s / 720p / 24fps，固定机位）。
+3. 用 `scripts/ingest_animation.py` 拆帧接入，替换占位帧。
 
 现有 rabbit 的 2D 帧保留作 fallback。视频生成由用户自己跑（花 Comfy 额度），仓库只提供提示词和接入代码。
 
