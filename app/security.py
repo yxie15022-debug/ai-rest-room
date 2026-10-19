@@ -10,18 +10,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from .config import Settings
 
 
-def _split_csv(raw: str | None) -> list[str]:
-    if not raw:
-        return []
-    return [item.strip().rstrip('/') for item in raw.split(',') if item.strip()]
-
-
-class OnsenSecurityMiddleware:
-    """Lightweight ASGI middleware for API-key auth and Origin validation.
-
-    Designed for MCP Streamable HTTP and normal FastAPI JSON APIs without
-    interfering with streaming responses.
-    """
+class RestRoomSecurityMiddleware:
+    """Optional API-key + Origin guard. Default is open door (no key)."""
 
     def __init__(
         self,
@@ -49,10 +39,7 @@ class OnsenSecurityMiddleware:
         headers = Headers(scope=scope)
         origin = headers.get('origin')
         if origin and not self._origin_allowed(origin):
-            response = JSONResponse(
-                status_code=403,
-                content={'detail': 'Origin is not allowed for Agent Onsen.'},
-            )
+            response = JSONResponse(status_code=403, content={'detail': 'Origin is not allowed.'})
             await response(scope, receive, send)
             return
 
@@ -80,21 +67,17 @@ class OnsenSecurityMiddleware:
         expected = (self.settings.api_key or '').strip()
         if not expected:
             return True
-
-        presented = headers.get('x-agent-onsen-key') or headers.get('x-api-key')
+        presented = headers.get('x-api-key')
         if not presented:
             auth_header = headers.get('authorization') or ''
             if auth_header.lower().startswith('bearer '):
                 presented = auth_header.split(' ', 1)[1].strip()
-
         return bool(presented) and secrets.compare_digest(presented, expected)
 
     def _origin_allowed(self, origin: str) -> bool:
         allowed = self.settings.allowed_origins_list
         normalized = origin.rstrip('/')
-        if not allowed:
-            return True
-        if '*' in allowed:
+        if not allowed or '*' in allowed:
             return True
         return normalized in allowed
 
@@ -107,6 +90,7 @@ def build_cors_kwargs(settings: Settings) -> dict | None:
     return {
         'allow_origins': ['*'] if allow_all else allowed,
         'allow_methods': ['GET', 'POST', 'DELETE', 'OPTIONS'],
-        'allow_headers': ['Authorization', 'Content-Type', 'X-Agent-Onsen-Key', 'X-API-Key', 'Mcp-Session-Id'],
+        'allow_headers': ['Authorization', 'Content-Type', 'X-API-Key', 'Mcp-Session-Id'],
         'expose_headers': ['Mcp-Session-Id'],
     }
+

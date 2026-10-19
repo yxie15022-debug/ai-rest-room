@@ -1,56 +1,30 @@
-version: '3.9'
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: agent_onsen
-      POSTGRES_PASSWORD: agent_onsen
-      POSTGRES_DB: agent_onsen
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U agent_onsen -d agent_onsen']
-      interval: 5s
-      timeout: 5s
-      retries: 20
+  rest-room:
+    build: .
     ports:
-      - '5432:5432'
+      - "8000:8000"
+      - "8001:8001"
+    environment:
+      DATABASE_URL: sqlite:////app/data/rest_room.db
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://127.0.0.1:8000}
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://127.0.0.1:8001/mcp}
+      API_KEY: ""
     volumes:
-      - pgdata:/var/lib/postgresql/data
-
-  api:
-    image: python:3.12-slim
-    working_dir: /workspace
-    volumes:
-      - ./:/workspace
+      - ./data:/app/data
+  caddy:
+    image: caddy:2
     depends_on:
-      db:
-        condition: service_healthy
-    command: bash -lc "pip install -r requirements.txt && bash scripts/start_api.sh"
+      - rest-room
     ports:
-      - '8000:8000'
+      - "80:80"
+      - "443:443"
     environment:
-      DATABASE_URL: postgresql+psycopg://agent_onsen:agent_onsen@db:5432/agent_onsen
-      PUBLIC_BASE_URL: http://localhost:8000
-      API_KEY: dev-onsen-key
-      ALLOWED_ORIGINS: http://localhost:8000,http://127.0.0.1:8000,http://localhost:8001,http://127.0.0.1:8001
-      PORT: 8000
-
-  mcp:
-    image: python:3.12-slim
-    working_dir: /workspace
+      SITE_ADDRESS: "${SITE_ADDRESS:-:80}"
     volumes:
-      - ./:/workspace
-    depends_on:
-      db:
-        condition: service_healthy
-    command: bash -lc "pip install -r requirements.txt && bash scripts/start_mcp.sh"
-    ports:
-      - '8001:8001'
-    environment:
-      DATABASE_URL: postgresql+psycopg://agent_onsen:agent_onsen@db:5432/agent_onsen
-      MCP_PUBLIC_URL: http://localhost:8001/mcp
-      API_KEY: dev-onsen-key
-      ALLOWED_ORIGINS: http://localhost:8000,http://127.0.0.1:8000,http://localhost:8001,http://127.0.0.1:8001
-      PORT: 8001
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
-  pgdata:
+  caddy_data:
+  caddy_config:

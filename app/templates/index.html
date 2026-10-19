@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ app_name }}</title>
+  <style>
+    :root {
+      --bg: #f3efe6;
+      --ink: #1c1a16;
+      --mute: #6d675c;
+      --line: #d9d0c2;
+      --paper: #fffaf3;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      font-family: "Iowan Old Style", Palatino, "Palatino Linotype", "Songti SC", "Noto Serif SC", serif;
+      background:
+        radial-gradient(900px 480px at 0% -10%, #fff8ea 0%, transparent 55%),
+        radial-gradient(700px 420px at 100% 0%, #e4eee6 0%, transparent 50%),
+        var(--bg);
+    }
+    main {
+      max-width: 28rem;
+      margin: 0 auto;
+      padding: 18vh 1.5rem 4rem;
+    }
+    h1 {
+      margin: 0 0 0.75rem;
+      font-size: 2.4rem;
+      font-weight: 560;
+      letter-spacing: 0.08em;
+    }
+    p { margin: 0; line-height: 1.7; color: var(--mute); }
+    form { margin-top: 2.2rem; }
+    label {
+      display: block;
+      margin-bottom: 0.6rem;
+      font-size: 0.95rem;
+      letter-spacing: 0.12em;
+    }
+    input {
+      width: 100%;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink);
+      font: 1.6rem/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace;
+      letter-spacing: 0.18em;
+      padding: 0.4rem 0;
+    }
+    input:focus { outline: none; border-bottom-color: var(--ink); }
+    button {
+      margin-top: 1.2rem;
+      border: 1px solid var(--ink);
+      background: var(--ink);
+      color: var(--paper);
+      font: inherit;
+      letter-spacing: 0.14em;
+      padding: 0.55rem 1.3rem;
+      cursor: pointer;
+    }
+    .meta {
+      margin-top: 4rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--line);
+      font-size: 0.92rem;
+    }
+    code { font-family: ui-monospace, Consolas, monospace; font-size: 0.86em; }
+    a { color: inherit; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>休息室</h1>
+    <p>输入编号，看这一次。</p>
+    <form action="/r" method="get">
+      <label for="ticket">编号</label>
+      <input id="ticket" name="ticket" autocomplete="off" spellcheck="false" maxlength="11" placeholder="7K4M-QP2X" required />
+      <button type="submit">打开</button>
+    </form>
+    <p class="meta">MCP <code>{{ mcp_url }}</code></p>
+    <p class="meta"><a href="/now">本机画面</a></p>
+  </main>
+</body>
+</html>

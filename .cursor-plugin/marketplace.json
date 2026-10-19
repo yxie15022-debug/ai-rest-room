@@ -1,0 +1,13 @@
+{
+  "name": "ai-rest-room",
+  "owner": {
+    "name": "ai-rest-room"
+  },
+  "plugins": [
+    {
+      "name": "ai-rest-room",
+      "source": "./plugin",
+      "description": "把休息室 MCP 接到 Cursor。"
+    }
+  ]
+}

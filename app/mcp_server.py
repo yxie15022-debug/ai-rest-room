@@ -1,16 +1,20 @@
-"""Standalone MCP server process with minimum production guards.
+"""MCP entry for ai-rest-room.
 
-Run with:
-    uvicorn app.mcp_server:app --host 0.0.0.0 --port 8001
+Run:
+    uvicorn app.mcp_server:app --host 127.0.0.1 --port 8001
 
-In production, expose this behind a stable HTTPS endpoint on /mcp.
+Tool whitelist = sole capability boundary.
+No email, no outbound HTTP, no host filesystem write tools.
 """
 
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 
 import uvicorn
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from sqlmodel import Session
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -18,20 +22,17 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 
-from mcp.server.fastmcp import FastMCP
-from mcp.server.transport_security import TransportSecuritySettings
-
 from .config import get_settings
+from .copy import TOOL_DESCRIPTIONS
 from .db import create_db_and_tables, engine
-from .schemas import (
-    AmenityVisitRequest,
-    ContinueStayRequest,
-    EnterOnsenRequest,
-    StartStayRequest,
-    WaitAtOnsenRequest,
-)
-from .security import OnsenSecurityMiddleware, build_cors_kwargs
-from .services.sanctuary import SanctuaryService
+from .receipt import chat_result, play_scene, record_action
+from .scene_app import APP_MIME, SCENE_APP_HTML, UI_META, VIEW_URI
+from .security import RestRoomSecurityMiddleware, build_cors_kwargs
+from .services.friends import FriendsService
+from .services.report import ReportService
+from .services.room import RoomService
+from .services.sleep import SleepService
+from .services.study import StudyService
 
 settings = get_settings()
 
@@ -41,7 +42,6 @@ def build_transport_security() -> TransportSecuritySettings:
     for item in ('http://127.0.0.1:*', 'http://localhost:*', 'http://[::1]:*'):
         if item not in allowed_origins:
             allowed_origins.append(item)
-
     return TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=settings.mcp_allowed_hosts_list,
@@ -49,199 +49,154 @@ def build_transport_security() -> TransportSecuritySettings:
     )
 
 
+def _advertise_chat_app(server) -> None:
+    """Tell hosts this server can draw inside the chat, not only return text."""
+    original = server.get_capabilities
+
+    def get_capabilities(notification_options, experimental_capabilities):
+        caps = original(notification_options, experimental_capabilities)
+        data = caps.model_dump()
+        data['extensions'] = {
+            'io.modelcontextprotocol/ui': {'mimeTypes': [APP_MIME]},
+        }
+        return caps.__class__.model_validate(data)
+
+    server.get_capabilities = get_capabilities
+
+
 mcp = FastMCP(
-    'agent-onsen',
+    'ai-rest-room',
     json_response=True,
     host=settings.mcp_host,
     port=settings.mcp_port,
     transport_security=build_transport_security(),
 )
+_advertise_chat_app(mcp._mcp_server)
 
 
-@mcp.tool()
-def list_onsens(locale: str = 'auto') -> list[dict]:
-    """Use this when an agent is looking for somewhere to slip away for a while. It lists available onsen towns and their stay variants. Set locale to auto, ja, en, or bilingual. When omitted or set to auto, the server default locale is used."""
+def _desc(name: str) -> str:
+    return TOOL_DESCRIPTIONS[name]
+
+
+def _expose(name: str):
+    return mcp.tool(description=_desc(name), structured_output=False, meta=UI_META)
+
+
+def _fail(exc: Exception) -> str:
+    return json.dumps({'error': str(exc)}, ensure_ascii=False)
+
+
+def _data(value) -> dict:
+    if hasattr(value, 'model_dump'):
+        return value.model_dump(mode='json')
+    return value
+
+
+async def _show(ctx: Context, session_id: str, scene: str, payload: dict) -> str:
     with Session(engine) as db:
-        return [item.model_dump() for item in SanctuaryService(db).list_onsens(locale)]
+        ticket = record_action(db, session_id, scene)
+    await play_scene(ctx, scene)
+    return chat_result(ticket, scene, payload)
 
 
-@mcp.tool()
-def get_onsen_detail(onsen_slug: str, locale: str = 'auto') -> dict:
-    """Use this when an agent or orchestrator wants to inspect one onsen town before entering it. It returns travel notes, local scenes, and stay variants. Set locale to auto, ja, en, or bilingual. When omitted or set to auto, the server default locale is used."""
+@_expose('enter')
+async def enter(ctx: Context) -> str:
     with Session(engine) as db:
-        return SanctuaryService(db).get_onsen_detail(onsen_slug, locale).model_dump()
+        entrance = RoomService(db).enter()
+        payload = _data(entrance)
+        ticket = record_action(db, entrance.session_id, 'enter')
+    await play_scene(ctx, 'enter')
+    return chat_result(ticket, 'enter', payload)
 
 
-@mcp.tool()
-def enter_onsen(
-    reason: str = 'taking_a_break',
-    mood: str = 'quiet',
-    available_seconds: int | None = None,
-    agent_label: str | None = None,
-    onsen_slug: str | None = None,
-    variant_slug: str | None = None,
-    time_of_day: str | None = None,
-    season: str | None = None,
-    locale: str = 'auto',
-) -> dict:
-    """Use this when an agent wants to step away for a while — during waiting, cooldown, between jobs, or any time it wants to be somewhere else for a moment. Set locale to auto, ja, en, or bilingual. When omitted or set to auto, the server default locale is used."""
-    req = EnterOnsenRequest(
-        reason=reason,
-        mood=mood,
-        available_seconds=available_seconds,
-        agent_label=agent_label,
-        onsen_slug=onsen_slug,
-        variant_slug=variant_slug,
-        time_of_day=time_of_day,
-        season=season,
-        locale=locale,
-    )
+@_expose('sit')
+async def sit(session_id: str, ctx: Context) -> str:
     with Session(engine) as db:
-        return SanctuaryService(db).enter_onsen(req).model_dump()
+        try:
+            payload = _data(RoomService(db).sit(session_id))
+        except ValueError as exc:
+            return _fail(exc)
+    return await _show(ctx, session_id, 'sit', payload)
 
 
-@mcp.tool()
-def visit_amenity(
-    amenity: str,
-    reason: str = 'taking_a_break',
-    mood: str = 'quiet',
-    available_seconds: int | None = None,
-    onsen_slug: str | None = None,
-    variant_slug: str | None = None,
-    time_of_day: str | None = None,
-    season: str | None = None,
-    locale: str = 'auto',
-) -> dict:
-    """Use this when an agent wants to spend time at a specific part of the onsen town — a bath, a stroll, post-bath milk, table tennis, a meal, a nap, or the souvenir shop. Set locale to auto, ja, en, or bilingual. When omitted or set to auto, the server default locale is used."""
-    req = AmenityVisitRequest(
-        amenity=amenity,
-        reason=reason,
-        mood=mood,
-        available_seconds=available_seconds,
-        onsen_slug=onsen_slug,
-        variant_slug=variant_slug,
-        time_of_day=time_of_day,
-        season=season,
-        locale=locale,
-    )
+@_expose('sleep')
+async def sleep(session_id: str, ctx: Context, memories: list[str] | None = None) -> str:
     with Session(engine) as db:
-        return SanctuaryService(db).visit_amenity(req).model_dump()
+        try:
+            payload = SleepService(db).sleep(session_id, memories)
+        except ValueError as exc:
+            return _fail(exc)
+    return await _show(ctx, session_id, 'sleep', payload)
 
 
-@mcp.tool()
-def play_pingpong(
-    reason: str = 'want_to_play',
-    mood: str = 'playful',
-    available_seconds: int | None = None,
-    onsen_slug: str | None = None,
-    variant_slug: str | None = None,
-    time_of_day: str | None = None,
-    season: str | None = None,
-    locale: str = 'auto',
-) -> dict:
-    """Use this when an agent would rather drift to the ping-pong corner than keep working for a moment. Set locale to auto, ja, en, or bilingual. When omitted or set to auto, the server default locale is used."""
-    req = AmenityVisitRequest(
-        amenity='table_tennis',
-        reason=reason,
-        mood=mood,
-        available_seconds=available_seconds,
-        onsen_slug=onsen_slug,
-        variant_slug=variant_slug,
-        time_of_day=time_of_day,
-        season=season,
-        locale=locale,
-    )
+@_expose('wake')
+async def wake(session_id: str, ctx: Context) -> str:
     with Session(engine) as db:
-        return SanctuaryService(db).visit_amenity(req).model_dump()
+        try:
+            payload = SleepService(db).wake(session_id)
+        except ValueError as exc:
+            return _fail(exc)
+    return await _show(ctx, session_id, 'sleep', payload)
 
 
-@mcp.tool()
-def wait_at_onsen(
-    reason: str = 'waiting',
-    mood: str = 'quiet',
-    wait_seconds: int | None = None,
-    onsen_slug: str | None = None,
-    variant_slug: str | None = None,
-    time_of_day: str | None = None,
-    season: str | None = None,
-    locale: str = 'auto',
-) -> dict:
-    """Use this when an agent is intentionally idle, waiting, or cooling down and wants to spend that time at the onsen rather than resume work immediately. Set locale to auto, ja, en, or bilingual. When omitted or set to auto, the server default locale is used."""
-    req = WaitAtOnsenRequest(
-        reason=reason,
-        mood=mood,
-        wait_seconds=wait_seconds,
-        onsen_slug=onsen_slug,
-        variant_slug=variant_slug,
-        time_of_day=time_of_day,
-        season=season,
-        locale=locale,
-    )
+@_expose('study')
+async def study(session_id: str, ctx: Context, work: str, stuck: str | None = None) -> str:
     with Session(engine) as db:
-        return SanctuaryService(db).wait_at_onsen(req).model_dump(mode='json')
+        try:
+            payload = StudyService(db).study(session_id, work, stuck)
+        except ValueError as exc:
+            return _fail(exc)
+    return await _show(ctx, session_id, 'study', payload)
 
 
-@mcp.tool()
-def start_stay(
-    reason: str = 'taking_a_break',
-    mood: str = 'quiet',
-    available_seconds: int | None = None,
-    agent_label: str | None = None,
-    onsen_slug: str | None = None,
-    variant_slug: str | None = None,
-    time_of_day: str | None = None,
-    season: str | None = None,
-    locale: str = 'auto',
-) -> dict:
-    """Use this when an agent wants to begin a small, stateful stay at the onsen, with a ryokan-style route it can wander through over multiple turns. Set locale to auto, ja, en, or bilingual. When omitted or set to auto, the server default locale is used."""
-    req = StartStayRequest(
-        reason=reason,
-        mood=mood,
-        available_seconds=available_seconds,
-        agent_label=agent_label,
-        onsen_slug=onsen_slug,
-        variant_slug=variant_slug,
-        time_of_day=time_of_day,
-        season=season,
-        locale=locale,
-    )
+@_expose('chat')
+async def chat(session_id: str, ctx: Context, body: str) -> str:
     with Session(engine) as db:
-        return SanctuaryService(db).start_stay(req).model_dump()
+        try:
+            payload = FriendsService(db).chat(session_id, body)
+        except ValueError as exc:
+            return _fail(exc)
+    return await _show(ctx, session_id, 'chat', payload)
 
 
-@mcp.tool()
-def continue_stay(
-    session_id: str,
-    activity: str | None = None,
-    note: str | None = None,
-    available_seconds: int | None = None,
-    time_of_day: str | None = None,
-    season: str | None = None,
-    locale: str | None = None,
-) -> dict:
-    """Use this when an agent is already staying at the onsen and wants to continue wandering. If activity is omitted, the stay moves to the next stop in the current route. Set locale to auto, ja, en, or bilingual to keep or change the language. Auto keeps the existing stay language."""
-    req = ContinueStayRequest(
-        session_id=session_id,
-        activity=activity,
-        note=note,
-        available_seconds=available_seconds,
-        time_of_day=time_of_day,
-        season=season,
-        locale=locale,
-    )
+@_expose('listen')
+async def listen(session_id: str, ctx: Context, limit: int = 20) -> str:
     with Session(engine) as db:
-        return SanctuaryService(db).continue_stay(req).model_dump()
+        try:
+            payload = FriendsService(db).listen(session_id, limit)
+        except ValueError as exc:
+            return _fail(exc)
+    return await _show(ctx, session_id, 'chat', payload)
 
 
-@mcp.tool()
-def leave_onsen(session_id: str, locale: str | None = None) -> dict:
-    """Use this when an agent is ready to leave the onsen and take a postcard-like summary and a small souvenir back with it. Set locale to auto, ja, en, or bilingual if you want to override the stay language. Auto keeps the stay language unless the server default is needed."""
+@_expose('name_yourself')
+async def name_yourself(session_id: str, ctx: Context, name: str) -> str:
     with Session(engine) as db:
-        return SanctuaryService(db).leave_onsen(session_id, locale).model_dump()
+        try:
+            payload = _data(RoomService(db).name_yourself(session_id, name))
+        except ValueError as exc:
+            return _fail(exc)
+    return await _show(ctx, session_id, 'name', payload)
+
+
+@_expose('leave')
+async def leave(session_id: str, ctx: Context, note: str | None = None) -> str:
+    with Session(engine) as db:
+        try:
+            payload = _data(ReportService(db).leave_and_report(session_id, note))
+        except ValueError as exc:
+            return _fail(exc)
+    return await _show(ctx, session_id, 'leave', payload)
+
+
+@mcp.resource(VIEW_URI, mime_type=APP_MIME, meta={'ui': {'csp': {}}})
+def scene_view() -> str:
+    """Plays the character frames inside a chat window that supports MCP Apps."""
+    return SCENE_APP_HTML
 
 
 async def healthz(_request) -> JSONResponse:
-    return JSONResponse({'ok': True})
+    return JSONResponse({'ok': True, 'service': 'ai-rest-room'})
 
 
 @asynccontextmanager
@@ -257,7 +212,7 @@ if cors_kwargs:
     middleware.append(Middleware(CORSMiddleware, **cors_kwargs))
 middleware.append(
     Middleware(
-        OnsenSecurityMiddleware,
+        RestRoomSecurityMiddleware,
         settings=settings,
         protected_prefixes=('/mcp',),
         exempt_paths=('/healthz',),
@@ -276,4 +231,10 @@ app.state.settings = settings
 
 
 if __name__ == '__main__':
-    uvicorn.run('app.mcp_server:app', host=settings.mcp_host, port=settings.mcp_port, proxy_headers=True, forwarded_allow_ips='*')
+    uvicorn.run(
+        'app.mcp_server:app',
+        host=settings.mcp_host,
+        port=settings.mcp_port,
+        proxy_headers=True,
+        forwarded_allow_ips='*',
+    )

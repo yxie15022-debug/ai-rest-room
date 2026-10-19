@@ -1,0 +1,8 @@
+{$SITE_ADDRESS::80} {
+	handle /mcp* {
+		reverse_proxy rest-room:8001
+	}
+	handle {
+		reverse_proxy rest-room:8000
+	}
+}

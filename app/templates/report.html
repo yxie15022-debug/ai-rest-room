@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>报告 {{ report_id }} · {{ app_name }}</title>
+  <style>
+    :root {
+      --bg: #f7f4ee;
+      --ink: #222018;
+      --mute: #6e685c;
+      --line: #ddd5c8;
+    }
+    body {
+      margin: 0;
+      font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC", serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+    main {
+      max-width: 42rem;
+      margin: 0 auto;
+      padding: 3rem 1.5rem 5rem;
+    }
+    .nav {
+      font-size: 0.9rem;
+      color: var(--mute);
+      margin-bottom: 2rem;
+    }
+    .nav a { color: inherit; }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.65;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92rem;
+      background: #fff;
+      border: 1px solid var(--line);
+      padding: 1.25rem;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="nav"><a href="/">← 门口</a> · 仅事后可读 · <a href="/reports/{{ report_id }}/raw">原始 Markdown</a></div>
+    <pre>{{ markdown }}</pre>
+  </main>
+</body>
+</html>

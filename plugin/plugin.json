@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "ai-rest-room",
+  "version": "0.1.0",
+  "description": "把休息室 MCP 接到当前客户端。图像由客户端自己画。",
+  "license": "MIT",
+  "keywords": ["mcp", "rest-room"]
+}

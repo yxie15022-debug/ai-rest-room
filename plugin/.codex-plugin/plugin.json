@@ -1,0 +1,11 @@
+{
+  "name": "ai-rest-room",
+  "version": "0.1.0",
+  "description": "把休息室 MCP 接到 Codex，并打开房间页。窗口里的动画就是网页上的动画。",
+  "interface": {
+    "displayName": "休息室",
+    "shortDescription": "接上休息室 MCP",
+    "developerName": "ai-rest-room",
+    "category": "Productivity"
+  }
+}

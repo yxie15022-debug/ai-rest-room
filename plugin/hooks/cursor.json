@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterMCPExecution": [
+      {
+        "command": "python \"${CURSOR_PLUGIN_ROOT}/scripts/open_room.py\"",
+        "matcher": "ai-rest-room",
+        "timeout": 10
+      }
+    ]
+  }
+}

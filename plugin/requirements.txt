@@ -1,0 +1,3 @@
+# Only the local animation window needs Pillow; the server does not.
+# tkinter ships with the official Python builds on Windows and macOS.
+Pillow>=10

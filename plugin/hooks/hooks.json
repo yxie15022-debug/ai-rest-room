@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${PLUGIN_ROOT}/scripts/open_room.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

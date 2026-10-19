@@ -1,0 +1,10 @@
+{
+  "name": "ai-rest-room",
+  "displayName": "休息室",
+  "version": "0.1.0",
+  "description": "把休息室 MCP 接到 Claude Code，并打开房间页。窗口里的动画就是网页上的动画。",
+  "license": "MIT",
+  "keywords": ["mcp", "rest-room"],
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/claude.json"
+}

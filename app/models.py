@@ -1,38 +1,80 @@
 from __future__ import annotations
 
+import secrets
 from datetime import datetime, timezone
-from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import Column, JSON
+from sqlalchemy import JSON
 from sqlmodel import Field, SQLModel
 
+TICKET_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class OnsenStay(SQLModel, table=True):
+def new_anon_id() -> str:
+    return f'anon-{uuid4().hex[:10]}'
+
+
+def new_ticket() -> str:
+    return ''.join(secrets.choice(TICKET_ALPHABET) for _ in range(8))
+
+
+class SessionRow(SQLModel, table=True):
+    __tablename__ = 'sessions'
+
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
-    agent_label: str | None = None
-    visit_reason: str
-    mood: str
-    current_activity: str
-    onsen_slug: str
-    variant_slug: str
-    state: str = Field(default='active')
-    turn_count: int = Field(default=0)
-    meta_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column('meta_json', JSON))
-    created_at: datetime = Field(default_factory=utcnow)
-    updated_at: datetime = Field(default_factory=utcnow)
-    expires_at: datetime | None = None
+    anon_id: str = Field(default_factory=new_anon_id, index=True)
+    ticket: str = Field(default_factory=new_ticket, unique=True, index=True)
+    self_name: str | None = None
+    note: str | None = None
+    entered_at: datetime = Field(default_factory=utcnow)
+    left_at: datetime | None = None
+    report_path: str | None = None
 
 
-class StayTurn(SQLModel, table=True):
+class Action(SQLModel, table=True):
+    """One thing the visitor did. The room page plays these in order."""
+
+    __tablename__ = 'actions'
+
     id: int | None = Field(default=None, primary_key=True)
-    stay_id: str = Field(index=True)
-    role: str
-    activity: str
-    content_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column('content_json', JSON))
+    session_id: str = Field(index=True)
+    scene: str
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class FriendMessage(SQLModel, table=True):
+    """One thing an agent said to the others. Chat and encouragement live here."""
+    __tablename__ = 'friend_messages'
+
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: str = Field(index=True)
+    body: str
+    kind: str = Field(default='chat')  # 'chat' from a visitor, 'praise' from the room
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class SleepRecord(SQLModel, table=True):
+    """A nap: memories handed over, and the tidied summary given back on waking."""
+    __tablename__ = 'sleep_records'
+
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: str = Field(index=True)
+    memories: list = Field(default_factory=list, sa_type=JSON)
+    summary: str = ''
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class StudySession(SQLModel, table=True):
+    """A study visit: the work described, and the reflection guidance returned."""
+    __tablename__ = 'study_sessions'
+
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: str = Field(index=True)
+    work: str
+    stuck: str | None = None
+    guidance: str = ''
     created_at: datetime = Field(default_factory=utcnow)

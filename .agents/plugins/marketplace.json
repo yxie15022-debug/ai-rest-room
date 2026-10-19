@@ -1,0 +1,20 @@
+{
+  "name": "ai-rest-room",
+  "interface": {
+    "displayName": "休息室"
+  },
+  "plugins": [
+    {
+      "name": "ai-rest-room",
+      "source": "./plugin",
+      "interface": {
+        "displayName": "休息室"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
