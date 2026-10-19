@@ -14,17 +14,21 @@
 - **光**：高键、极软；桌面和地面各一层大而淡的接触阴影，没有明显方向光。
 - **机位**：固定 3/4 背后略高处，猫挡住显示器下半部分。
 
-## 二、现在就能跑：程序化版本
+## 二、现在就能跑：Blender 3D 渲染（默认）
 
-[scripts/render_studio.py](../scripts/render_studio.py)：Pillow 画的 2.5D 场景，不需要外部素材，输出 512×512 / 20 帧循环：
+[scripts/render_studio_blender.py](../scripts/render_studio_blender.py) 在 Blender 里搭白棚场景（黑猫、白色桌/椅/边柜、显示器、彩色围巾、软阴影），用 Cycles 渲染；[scripts/gen_studio_ui.py](../scripts/gen_studio_ui.py) 生成 5 张屏幕 UI 贴图，[scripts/studio_post.py](../scripts/studio_post.py) 发布到两处帧目录并重建预览：
 
 ```bash
-python scripts/render_studio.py --scenes sleep,sit,study,chat,enter --frames 20
+python scripts/gen_studio_ui.py
+blender --background --python scripts/render_studio_blender.py -- --scenes sleep,sit,study,chat,enter --frames 20 --outdir data/_studio_render
+python scripts/studio_post.py
 ```
 
-- 写到 `app/static/mascot/studio/` 和 `plugin/frames/mascot/studio/`，预览在 `docs/preview/studio-*.gif`。
-- 动画：呼吸、点头、耳朵轻微抽动、围巾颜色按场景、屏幕 UI 内容动（折线、气泡、进度条、月亮）、睡觉飘 Z、进门淡入。
+- 输出 512×512 / 20 帧循环，写到 `app/static/mascot/studio/` 和 `plugin/frames/mascot/studio/`，预览在 `docs/preview/studio-*.gif`。
+- 动画：呼吸、耳朵轻微抽动、围巾颜色按场景、屏幕 UI 按场景（文件列表 / 折线图 / 聊天气泡 / 黑屏月亮 / 开机）、睡觉歪头、进门淡入。
 - 切换：`AI_REST_ROOM_MASCOT=studio`（或把 `studio` 写进 `~/.ai-rest-room-mascot`）。rabbit 仍可回退。
+
+> 早先的 `scripts/render_studio.py`（Pillow 2.5D 手绘）已弃用，只在没装 Blender 时当占位。
 
 ## 三、如果要 AI 生成同款（更接近参考图的 3D 质感）
 

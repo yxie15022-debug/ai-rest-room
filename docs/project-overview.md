@@ -108,7 +108,7 @@ docs/             project-overview / lowpoly-animation-todo / marvis-animation /
 
 - rabbit：每个场景 7 张 PNG（`plugin/frames/mascot/rabbit/{sit,sleep,study,chat,enter,read,look}/`），来源是 GenerateImage 出 4 格 sprite sheet → 切帧 → ffmpeg `minterpolate` 到 12fps。
 - `scene_window.py` 用无边框 Tk 窗口 24fps 轮播，置顶、白底、圆角裁形、隐藏任务栏图标、淡入；每 4 秒轮询 `/r/{ticket}/state`，按 agent 当前场景换一组帧；`leave` 复用 `enter` 倒放。窗口和网页都按 `~/.ai-rest-room-mascot` 选动物，缺帧回退 `sit`。
-- 2026-10-19：新增两套程序化动画。`cat`：Low Poly 奶油猫（`scripts/render_lowpoly.py`）；`studio`：**当前选定风格**，白棚里的黑猫工位（`scripts/render_studio.py`，黑猫剪影 + 白色桌椅/边柜 + 彩色围巾 + 显示器 UI + 极软阴影）。都是 512×512、20 帧循环，预览在 `docs/preview/`。
+- 2026-10-19：新增两套动画。`cat`：Low Poly 奶油猫（`scripts/render_lowpoly.py`）；`studio`：**当前选定风格**，白棚黑猫工位，由 Blender Cycles 渲染（`scripts/render_studio_blender.py` 建场景、`scripts/gen_studio_ui.py` 生成屏幕 UI、`scripts/studio_post.py` 发布），黑猫剪影 + 白色桌椅/边柜 + 彩色围巾 + 显示器 UI + 软阴影。都是 512×512、20 帧循环，预览在 `docs/preview/`。
 - 最终质感走「定稿图 → Seedance 图生视频 → 拆帧」：studio 风格的提示词和产线见 [studio-cat-animation.md](studio-cat-animation.md)，旧的低多边形产线保留在 [marvis-animation.md](marvis-animation.md)；素材到手后用 `scripts/ingest_animation.py` 一条命令写入两处帧目录。
 
 ### 4. 关窗离开 + 软引导 + 网页一致（2026-10-18 完成）

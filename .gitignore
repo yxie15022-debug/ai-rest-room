@@ -9,6 +9,7 @@ __pycache__/
 .pytest_cache/
 .dsh-test/
 .dsh-backup/
+data/_*/
 data/*.db
 data/reports/*.md
 !data/reports/.gitkeep

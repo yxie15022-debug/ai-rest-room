@@ -56,14 +56,16 @@ agent --MCP :8001--> 九个工具 --> services --> SQLite(data/rest_room.db)
 
 房间页和插件窗口播的是 `<animal>/<scene>/NN.png` 帧。默认 `rabbit`，把动物名写进 `~/.ai-rest-room-mascot` 即可换（网页和窗口读同一份）；容器或沙箱环境用环境变量 `AI_REST_ROOM_MASCOT=studio`。
 
-- **`studio`（当前选定风格）**：白棚里的黑猫工位——黑猫剪影、白色桌/椅/边柜、显示器 UI、彩色围巾、极软阴影。
+- **`studio`（当前选定风格，Blender 3D 渲染）**：白棚黑猫工位——黑猫剪影、白色桌/椅/边柜、显示器 UI、彩色围巾、软阴影。三步出片：
 
   ```bash
-  python scripts/render_studio.py --scenes sleep,sit,study,chat,enter --frames 20
+  python scripts/gen_studio_ui.py                        # 生成 5 张屏幕 UI
+  blender --background --python scripts/render_studio_blender.py -- --scenes sleep,sit,study,chat,enter --frames 20 --outdir data/_studio_render
+  python scripts/studio_post.py                          # 发布到两处帧目录 + 重建预览
   ```
 
-  预览：`docs/preview/studio-*.gif` 和 `docs/preview/studio-contact.png`；AI 生成同款更高质感的提示词见 [docs/studio-cat-animation.md](docs/studio-cat-animation.md)。
-- **`cat`**：之前的 Low Poly 奶油猫占位（`scripts/render_lowpoly.py`），保留可切换。
+  预览：`docs/preview/studio-*.gif` 和 `docs/preview/studio-contact.png`；AI 图生视频更高质感的提示词见 [docs/studio-cat-animation.md](docs/studio-cat-animation.md)。
+- **`cat`**：之前的 Low Poly 奶油猫（`scripts/render_lowpoly.py`），保留可切换。
 - 视频/帧素材到手后一条命令接入：
 
   ```bash
