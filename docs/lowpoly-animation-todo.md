@@ -1,5 +1,8 @@
 # Low Poly 3D 动画升级（Marvis 风格）
 
+> 2026-10-19 后记：用户随后把目标风格改成了「白棚黑猫工位」，见 [studio-cat-animation.md](studio-cat-animation.md)；
+> 本文档保留为低多边形奶油猫路线的记录，那套 `cat` 帧仍可作为可选动画。
+>
 > 2026-10-19 更新。目标：窗口动画从「2D 生成帧 + 插值」升级为「Marvis 式 Low Poly 3D 卡通 + 图生视频连续动画」。
 > 风格锚：奶油色 Low Poly 猫、珊瑚红项圈、白底、软阴影、固定机位。定稿参考：`docs/reference/cat-lowpoly-sleep-ref.jpg`。
 

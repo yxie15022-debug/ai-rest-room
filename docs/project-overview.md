@@ -78,9 +78,9 @@ scripts/
 plugin/           Cursor / Claude Code / Codex 安装包
   scripts/scene_window.py  无边框动画窗（Tk，按 `~/.ai-rest-room-mascot` 选动物）
   scripts/open_room.py     顶窗逻辑（新 ticket 顶掉旧窗）
-  frames/mascot/           各动物的场景帧
-tests/            test_rest / test_llm / test_ticket / test_research / test_animation（51 个）
-docs/             project-overview / lowpoly-animation-todo / marvis-animation
+  frames/mascot/           各动物的场景帧（rabbit / cat / studio）
+tests/            test_rest / test_llm / test_ticket / test_research / test_animation（54 个）
+docs/             project-overview / lowpoly-animation-todo / marvis-animation / studio-cat-animation
   reference/      风格定稿图（睡觉参考）
   preview/        场景预览 GIF / 联系表
 ```
@@ -108,8 +108,8 @@ docs/             project-overview / lowpoly-animation-todo / marvis-animation
 
 - rabbit：每个场景 7 张 PNG（`plugin/frames/mascot/rabbit/{sit,sleep,study,chat,enter,read,look}/`），来源是 GenerateImage 出 4 格 sprite sheet → 切帧 → ffmpeg `minterpolate` 到 12fps。
 - `scene_window.py` 用无边框 Tk 窗口 24fps 轮播，置顶、白底、圆角裁形、隐藏任务栏图标、淡入；每 4 秒轮询 `/r/{ticket}/state`，按 agent 当前场景换一组帧；`leave` 复用 `enter` 倒放。窗口和网页都按 `~/.ai-rest-room-mascot` 选动物，缺帧回退 `sit`。
-- 2026-10-19：新增程序化 Low Poly 猫（`scripts/render_lowpoly.py`，512×512、20 帧循环、`cat/{enter,sit,sleep,study,chat}`），预览在 `docs/preview/`。这是 Marvis 风格的**占位/基线**，不是最终美术。
-- 最终质感走「定稿图 → Seedance 图生视频 → 拆帧」：提示词和参数见 [marvis-animation.md](marvis-animation.md)；视频到手后用 `scripts/ingest_animation.py` 一条命令写入两处帧目录。
+- 2026-10-19：新增两套程序化动画。`cat`：Low Poly 奶油猫（`scripts/render_lowpoly.py`）；`studio`：**当前选定风格**，白棚里的黑猫工位（`scripts/render_studio.py`，黑猫剪影 + 白色桌椅/边柜 + 彩色围巾 + 显示器 UI + 极软阴影）。都是 512×512、20 帧循环，预览在 `docs/preview/`。
+- 最终质感走「定稿图 → Seedance 图生视频 → 拆帧」：studio 风格的提示词和产线见 [studio-cat-animation.md](studio-cat-animation.md)，旧的低多边形产线保留在 [marvis-animation.md](marvis-animation.md)；素材到手后用 `scripts/ingest_animation.py` 一条命令写入两处帧目录。
 
 ### 4. 关窗离开 + 软引导 + 网页一致（2026-10-18 完成）
 
@@ -119,7 +119,7 @@ docs/             project-overview / lowpoly-animation-todo / marvis-animation
 
 ### 5. 测试
 
-51 个测试全过（`pytest`）：原 23 个 + 8 个 LLM 测试（mock `llm.complete`）+ 16 个论文落地测试（sleep/study/chat 的提示词与服务结构）+ 4 个动画资产测试。2026-10-19 起 `tests/conftest.py` 把数据库和报告目录指到临时目录，测试不再写 `data/`；动画测试只读帧文件，不依赖 Pillow。
+54 个测试全过（`pytest`）：原 23 个 + 8 个 LLM 测试（mock `llm.complete`）+ 16 个论文落地测试（sleep/study/chat 的提示词与服务结构）+ 7 个动画资产测试（cat 与 studio 的帧、镜像目录、预览、环境变量选择）。2026-10-19 起 `tests/conftest.py` 把数据库和报告目录指到临时目录，测试不再写 `data/`；动画测试只读帧文件，不依赖 Pillow。
 
 ---
 
@@ -129,7 +129,7 @@ docs/             project-overview / lowpoly-animation-todo / marvis-animation
 
 把窗口动画从「2D 生成帧 + 插值」升级为「Marvis 式 Low Poly 3D 卡通 + 图生视频连续动画」。
 
-**2026-10-19 进展**：窗口/网页已能按 `~/.ai-rest-room-mascot` 选动物；程序化 Low Poly 占位帧（`scripts/render_lowpoly.py`）、拆帧导入脚本（`scripts/ingest_animation.py`）和提示词文档（[marvis-animation.md](marvis-animation.md)）已就绪。剩下的主要是美术素材：
+**2026-10-19 进展**：窗口/网页已能按 `~/.ai-rest-room-mascot` 选动物；两套程序化帧（`cat` 低多边形奶油猫、`studio` 当前选定的黑猫工位）、拆帧导入脚本（`scripts/ingest_animation.py`）和提示词文档（[studio-cat-animation.md](studio-cat-animation.md)、[marvis-animation.md](marvis-animation.md)）已就绪。剩下的主要是美术素材：
 
 1. 每只动物先出 3 张 Low Poly 定稿图（白底、软阴影、哑光），第一批只做**猫**（睡觉那张已定稿，见 `docs/reference/`；sit / study / chat 待生成）。
 2. 用 Seedance 图生视频做动作（4s / 720p / 24fps，固定机位）。

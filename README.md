@@ -54,19 +54,20 @@ agent --MCP :8001--> 九个工具 --> services --> SQLite(data/rest_room.db)
 
 ## 动画
 
-房间页和插件窗口播的是 `<animal>/<scene>/NN.png` 帧。默认 `rabbit`，把动物名写进 `~/.ai-rest-room-mascot` 即可换（网页和窗口读同一份）；容器或其他无法写 home 的环境可以用环境变量 `AI_REST_ROOM_MASCOT=cat`。
+房间页和插件窗口播的是 `<animal>/<scene>/NN.png` 帧。默认 `rabbit`，把动物名写进 `~/.ai-rest-room-mascot` 即可换（网页和窗口读同一份）；容器或沙箱环境用环境变量 `AI_REST_ROOM_MASCOT=studio`。
 
-- 2026-10-19 新增一套程序化 Low Poly 猫（Marvis 风格基线/占位，不是最终美术）：
+- **`studio`（当前选定风格）**：白棚里的黑猫工位——黑猫剪影、白色桌/椅/边柜、显示器 UI、彩色围巾、极软阴影。
 
   ```bash
-  python scripts/render_lowpoly.py --scenes sleep,sit,study,chat,enter --frames 20 --size 512
+  python scripts/render_studio.py --scenes sleep,sit,study,chat,enter --frames 20
   ```
 
-  预览在 `docs/preview/`，风格参考在 `docs/reference/`。
-- 最终质感走「定稿图 → Seedance 图生视频 → 拆帧」，提示词和参数见 [docs/marvis-animation.md](docs/marvis-animation.md)。视频到手后一条命令接入：
+  预览：`docs/preview/studio-*.gif` 和 `docs/preview/studio-contact.png`；AI 生成同款更高质感的提示词见 [docs/studio-cat-animation.md](docs/studio-cat-animation.md)。
+- **`cat`**：之前的 Low Poly 奶油猫占位（`scripts/render_lowpoly.py`），保留可切换。
+- 视频/帧素材到手后一条命令接入：
 
   ```bash
-  python scripts/ingest_animation.py --input cat-sit.mp4 --scene sit --animal cat
+  python scripts/ingest_animation.py --input studio-study.mp4 --scene study --animal studio
   ```
 
 ## 本地运行
@@ -168,10 +169,10 @@ app/
   templates/      index / room / report / now / missing
   static/         动物帧与场景 GIF
 data/             sqlite、reports（都不入库）
-scripts/          smoke_vertical.py / render_lowpoly.py / ingest_animation.py
-tests/            test_rest / test_llm / test_ticket / test_research / test_animation（51 个）
+scripts/          smoke_vertical.py / render_lowpoly.py / render_studio.py / ingest_animation.py
+tests/            test_rest / test_llm / test_ticket / test_research / test_animation（54 个）
 plugin/           Cursor / Claude Code / Codex 安装包 + 动画窗
-docs/             project-overview / lowpoly-animation-todo / marvis-animation
+docs/             project-overview / lowpoly-animation-todo / marvis-animation / studio-cat-animation
   reference/      风格定稿图（睡觉参考）
   preview/        场景预览 GIF / 联系表
 sql/schema.sql    参考表结构（SQLModel create_all 才是准的）
