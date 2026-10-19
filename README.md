@@ -54,7 +54,7 @@ agent --MCP :8001--> 九个工具 --> services --> SQLite(data/rest_room.db)
 
 ## 动画
 
-房间页和插件窗口播的是 `<animal>/<scene>/NN.png` 帧。默认 `rabbit`，把动物名写进 `~/.ai-rest-room-mascot` 即可换（网页和窗口读同一份）。
+房间页和插件窗口播的是 `<animal>/<scene>/NN.png` 帧。默认 `rabbit`，把动物名写进 `~/.ai-rest-room-mascot` 即可换（网页和窗口读同一份）；容器或其他无法写 home 的环境可以用环境变量 `AI_REST_ROOM_MASCOT=cat`。
 
 - 2026-10-19 新增一套程序化 Low Poly 猫（Marvis 风格基线/占位，不是最终美术）：
 

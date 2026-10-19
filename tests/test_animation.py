@@ -1,10 +1,12 @@
 """Animation assets: the cat frame sets the window and room page play."""
 
+import os
 import struct
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from app.services.report import mascot_clips
+from app.services.report import mascot_animal, mascot_clips
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_CAT = ROOT / 'app' / 'static' / 'mascot' / 'cat'
@@ -37,6 +39,12 @@ class CatAnimationTest(unittest.TestCase):
         clips = mascot_clips('cat')
         for scene in SCENES:
             self.assertGreaterEqual(clips.get(scene, 0), 10, scene)
+
+    def test_env_override_picks_animal(self):
+        with mock.patch.dict(os.environ, {'AI_REST_ROOM_MASCOT': 'cat'}):
+            self.assertEqual(mascot_animal(), 'cat')
+        with mock.patch.dict(os.environ, {'AI_REST_ROOM_MASCOT': 'dragon'}):
+            self.assertEqual(mascot_animal(), 'rabbit')
 
     def test_previews_and_reference_exist(self):
         self.assertTrue((PREVIEW / 'cat-contact.png').is_file())

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,11 +30,17 @@ def mascot_clips(animal: str) -> dict[str, int]:
 
 
 def mascot_animal() -> str:
-    """Which animal the local user picked, falling back to rabbit."""
-    try:
-        value = (Path.home() / '.ai-rest-room-mascot').read_text(encoding='utf-8').strip()
-    except OSError:
-        value = ''
+    """Which animal the local user picked, falling back to rabbit.
+
+    AI_REST_ROOM_MASCOT wins when set, so containers and sandboxed runs can
+    choose an animal without writing to the server's home directory.
+    """
+    value = (os.environ.get('AI_REST_ROOM_MASCOT') or '').strip()
+    if not value:
+        try:
+            value = (Path.home() / '.ai-rest-room-mascot').read_text(encoding='utf-8').strip()
+        except OSError:
+            value = ''
     if value and (MASCOT_DIR / value).is_dir():
         return value
     return 'rabbit'

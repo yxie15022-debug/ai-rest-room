@@ -96,6 +96,12 @@ Set-Content "$HOME\.ai-rest-room-mascot" "cat"
 Set-Content "$HOME\.ai-rest-room-mascot" "rabbit"
 ```
 
+容器、CI、或无法写 home 的环境用环境变量覆盖（优先级高于 marker）：
+
+```bash
+AI_REST_ROOM_MASCOT=cat uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
 `plugin/frames/mascot/<animal>/<scene>/` 至少要有 `sit`、`sleep`、`study`、`chat`、`enter`；缺某一幕时窗口回退到 `sit`。
 
 ## 三、验收清单

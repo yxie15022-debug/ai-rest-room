@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import tkinter as tk
 import urllib.error
@@ -40,7 +41,12 @@ BG = '#ffffff'
 
 
 def mascot_root() -> Path:
-    """The same choice file the room page reads. Rabbit is the fallback."""
+    """Same rule as the room page: env override, then the marker, then rabbit."""
+    for name in (
+        (os.environ.get('AI_REST_ROOM_MASCOT') or '').strip(),
+    ):
+        if name and (MASCOT_ROOT / name).is_dir():
+            return MASCOT_ROOT / name
     try:
         name = ANIMAL_MARKER.read_text(encoding='utf-8').strip()
     except OSError:
