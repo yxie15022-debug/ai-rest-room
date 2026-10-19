@@ -11,6 +11,10 @@ __pycache__/
 .dsh-backup/
 data/_*/
 data/*.db
+# stray temp dirs (the sandbox tempdir resolves to the repo root)
+ai-rest-room-tests-*/
+ai-rest-room-smoke-*/
+rest-room-frames-*/
 data/reports/*.md
 !data/reports/.gitkeep
 plugin/frames/mascot/*/_interp/
