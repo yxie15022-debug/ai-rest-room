@@ -13,6 +13,8 @@ APP_CAT = ROOT / 'app' / 'static' / 'mascot' / 'cat'
 PLUGIN_CAT = ROOT / 'plugin' / 'frames' / 'mascot' / 'cat'
 APP_STUDIO = ROOT / 'app' / 'static' / 'mascot' / 'studio'
 PLUGIN_STUDIO = ROOT / 'plugin' / 'frames' / 'mascot' / 'studio'
+APP_PIXEL = ROOT / 'app' / 'static' / 'mascot' / 'pixel'
+PLUGIN_PIXEL = ROOT / 'plugin' / 'frames' / 'mascot' / 'pixel'
 PREVIEW = ROOT / 'docs' / 'preview'
 SCENES = ('enter', 'sleep', 'sit', 'study', 'chat')
 
@@ -73,6 +75,26 @@ class StudioAnimationTest(unittest.TestCase):
         self.assertTrue((PREVIEW / 'studio-contact.png').is_file())
         for scene in SCENES:
             gif = PREVIEW / f'studio-{scene}.gif'
+            self.assertTrue(gif.is_file(), gif)
+            self.assertTrue(gif.read_bytes().startswith(b'GIF89a'), gif)
+
+
+class PixelAnimationTest(unittest.TestCase):
+    def test_pixel_frames_and_mirror(self):
+        for scene in SCENES:
+            app_frames = sorted((APP_PIXEL / scene).glob('*.png'))
+            plugin_frames = sorted((PLUGIN_PIXEL / scene).glob('*.png'))
+            self.assertGreaterEqual(len(app_frames), 10, scene)
+            self.assertEqual(len(app_frames), len(plugin_frames), scene)
+            self.assertEqual(png_size(app_frames[0]), (512, 512), app_frames[0])
+
+    def test_pixel_clips_and_previews(self):
+        clips = mascot_clips('pixel')
+        for scene in SCENES:
+            self.assertGreaterEqual(clips.get(scene, 0), 10, scene)
+        self.assertTrue((PREVIEW / 'pixel-contact.png').is_file())
+        for scene in SCENES:
+            gif = PREVIEW / f'pixel-{scene}.gif'
             self.assertTrue(gif.is_file(), gif)
             self.assertTrue(gif.read_bytes().startswith(b'GIF89a'), gif)
 

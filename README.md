@@ -65,6 +65,7 @@ agent --MCP :8001--> 九个工具 --> services --> SQLite(data/rest_room.db)
   ```
 
   预览：`docs/preview/studio-*.gif` 和 `docs/preview/studio-contact.png`；AI 图生视频更高质感的提示词见 [docs/studio-cat-animation.md](docs/studio-cat-animation.md)。
+- **`pixel`**：像素风版本——128×128 逻辑像素 ×4、20 帧循环，黑猫工位 + 像素显示器 UI，`scripts/render_pixel.py`，预览 `docs/preview/pixel-*.gif`。细节见 [docs/pixel-animation.md](docs/pixel-animation.md)。
 - **`cat`**：之前的 Low Poly 奶油猫（`scripts/render_lowpoly.py`），保留可切换。
 - 视频/帧素材到手后一条命令接入：
 
