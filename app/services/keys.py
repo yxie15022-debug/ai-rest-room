@@ -104,9 +104,16 @@ def describe() -> dict:
             'file': FILENAME,
         }
     if settings.llm_enabled:
+        # Read from `.env`: show the mask of whichever key that resolves to,
+        # so the page can say something more useful than "configured".
+        first = next(
+            (settings.key_for(role) for role in ('welcome', 'plan', 'sleep', 'study', 'chat')
+             if settings.key_for(role)),
+            None,
+        )
         return {
             'source': 'env',
-            'masked': '（来自 .env）',
+            'masked': mask(first or ''),
             'llm': True,
             'file': FILENAME,
         }

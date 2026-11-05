@@ -129,7 +129,11 @@
     {% if key.llm %}
       <div class="state on">
         <span class="dot"></span>
-        <span>已接入 <code>{{ key.masked }}</code>{% if key.source == 'env' %}（读自 <code>.env</code>）{% endif %}</span>
+        {% if key.source == 'env' %}
+          <span>已接入，key 读自 <code>.env</code>。<code>{{ key.masked }}</code></span>
+        {% else %}
+          <span>已接入 <code>{{ key.masked }}</code></span>
+        {% endif %}
       </div>
     {% else %}
       <div class="state warn">
