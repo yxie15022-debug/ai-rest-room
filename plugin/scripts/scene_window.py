@@ -33,6 +33,7 @@ CLIP = {
     'read': 'read',
     'look': 'look',
     'name': 'sit',
+    'plan': 'sit',
     'leave': 'enter',
 }
 PLAY_ONCE = {'enter', 'leave'}

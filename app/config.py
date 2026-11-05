@@ -34,16 +34,40 @@ class Settings(BaseSettings):
         )
     )
 
-    # DeepSeek (OpenAI-compatible). Empty key = LLM off, every feature falls back
-    # to the deterministic copy. Used by enter pace, sleep, study and chat.
+    # DeepSeek (OpenAI-compatible). Shared key is the fallback. Each role can
+    # take its own key so welcome / plan / sleep / study / chat stay isolated.
+    # Empty everywhere = LLM off; every feature falls back to fixed copy.
     deepseek_api_key: str | None = Field(default=None)
+    deepseek_api_key_welcome: str | None = Field(default=None)
+    deepseek_api_key_plan: str | None = Field(default=None)
+    deepseek_api_key_sleep: str | None = Field(default=None)
+    deepseek_api_key_study: str | None = Field(default=None)
+    deepseek_api_key_chat: str | None = Field(default=None)
     deepseek_base_url: str = Field(default='https://api.deepseek.com')
     deepseek_model: str = Field(default='deepseek-chat')
     llm_timeout: float = Field(default=30.0)
 
+    def key_for(self, role: str) -> str | None:
+        """Role key first, then the shared key. Empty string means off."""
+        named = {
+            'welcome': self.deepseek_api_key_welcome,
+            'plan': self.deepseek_api_key_plan,
+            'sleep': self.deepseek_api_key_sleep,
+            'study': self.deepseek_api_key_study,
+            'chat': self.deepseek_api_key_chat,
+        }.get(role)
+        for candidate in (named, self.deepseek_api_key):
+            value = (candidate or '').strip()
+            if value:
+                return value
+        return None
+
     @property
     def llm_enabled(self) -> bool:
-        return bool((self.deepseek_api_key or '').strip())
+        return any(
+            self.key_for(role)
+            for role in ('welcome', 'plan', 'sleep', 'study', 'chat')
+        )
 
     @property
     def allowed_origins_list(self) -> list[str]:

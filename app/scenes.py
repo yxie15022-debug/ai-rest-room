@@ -12,12 +12,14 @@ PALETTE = set(' ░▒▓█')
 
 SCENE_LINE = {
     'enter': '进门',
+    'plan': '写了一份可以不跟的安排',
     'sit': '坐着',
     'sleep': '睡了一觉',
     'study': '在学一会儿',
     'chat': '和朋友说话',
     'name': '给自己取了名字',
     'leave': '离开了',
+    'read': '翻看这次的记录',
 }
 
 
@@ -159,12 +161,17 @@ def _leave() -> list[str]:
 
 SCENES: dict[str, list[str]] = {
     'enter': _enter(),
+    'plan': _sit(),
     'sit': _sit(),
     'sleep': _sleep(),
     'study': _study(),
     'chat': _chat(),
     'name': _name(),
     'leave': _leave(),
+    # Reading the report is a scene with no frames of its own: it happens after
+    # the visit, when the room is already empty, so the calm sitting frame is
+    # what the stage should show.
+    'read': _sit(),
 }
 
 

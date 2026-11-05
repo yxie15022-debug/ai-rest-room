@@ -7,7 +7,7 @@ from pathlib import Path
 from sqlmodel import Session, select
 
 from ..config import get_settings
-from ..models import Action, FriendMessage, SessionRow, SleepRecord, StudySession, utcnow
+from ..models import Action, FriendMessage, SessionRow, SleepRecord, StudySession, VisitBrief, utcnow
 from ..scenes import SCENE_LINE, SCENES, frames_of
 from ..schemas import ReportMeta, SessionSummary
 from ..tickets import display_ticket, normalize_ticket
@@ -15,14 +15,31 @@ from ..tickets import display_ticket, normalize_ticket
 MASCOT_DIR = Path(__file__).resolve().parent.parent / 'static' / 'mascot'
 
 
-def mascot_clips(animal: str) -> dict[str, int]:
-    """Frame counts per scene for one animal, from its static folder."""
+STORY_SCENES = ('enter', 'sleep', 'study', 'chat')
+PLAY_MODE = {'enter': 'once', 'sleep': 'once', 'study': 'once', 'chat': 'once', 'sit': 'loop'}
+
+
+def mascot_clips(animal: str, model: str | None = None) -> dict[str, int]:
+    """Frame counts for one animal.
+
+    Low-poly visitors live at {animal}/{model}/{scene}/. Older animals stay
+    at {animal}/{scene}/, used when the model folder is absent.
+    """
     base = MASCOT_DIR / animal
     clips: dict[str, int] = {}
     if not base.is_dir():
         return clips
+    from ..characters import resolve
+    model_dir = base / resolve(model)
+    if model_dir.is_dir() and any((model_dir / name).is_dir() for name in ('enter', 'sit', 'sleep')):
+        for child in model_dir.iterdir():
+            if child.is_dir():
+                count = len(list(child.glob('*.png')))
+                if count:
+                    clips[child.name] = count
+        return clips
     for child in base.iterdir():
-        if child.is_dir():
+        if child.is_dir() and not child.name.startswith('_'):
             count = len(list(child.glob('*.png')))
             if count:
                 clips[child.name] = count
@@ -62,6 +79,10 @@ TEMPLATE = """# 活动报告
 
 {said}
 
+## 进门时说的
+
+{shared}
+
 ## 睡了一觉
 
 {slept}
@@ -87,6 +108,7 @@ class ReportService:
     def generate(self, session: SessionRow) -> ReportMeta:
         sequence = self._sequence(session)
         said = self._said(session)
+        shared = self._shared(session)
         slept = self._slept(session)
         studied = self._studied(session)
 
@@ -101,6 +123,7 @@ class ReportService:
             note=session.note or '（空）',
             timeline=timeline,
             said=said,
+            shared=shared,
             slept=slept,
             studied=studied,
         )
@@ -130,6 +153,16 @@ class ReportService:
         if not messages:
             return '（没说话）'
         return '\n\n'.join(f'- #{m.id}\n\n```\n{m.body}\n```' for m in messages)
+
+    def _shared(self, session: SessionRow) -> str:
+        brief = self.db.exec(
+            select(VisitBrief).where(VisitBrief.session_id == session.id).order_by(VisitBrief.id.desc())
+        ).first()
+        if brief is None:
+            return '（还没说）'
+        doing = brief.doing or '（没说）'
+        feeling = brief.feeling or '（没说）'
+        return f'正在做：{doing}\n\n感想：{feeling}\n\n安排：\n\n{brief.plan or "（空）"}'
 
     def _slept(self, session: SessionRow) -> str:
         record = self.db.exec(
@@ -168,11 +201,21 @@ class ReportService:
             session_id=session.id,
             anon_id=session.anon_id,
             self_name=session.self_name,
+            model=session.model,
             note=session.note,
             entered_at=session.entered_at,
             left_at=session.left_at or utcnow(),
             action_count=len(actions),
             report_id=meta.report_id,
+            # Handed over with the goodbye: an agent that never learns the report
+            # exists cannot ask for it, and `read_report` is only useful to
+            # someone who knows to call it.
+            report_url=f'{self.settings.public_base_url.rstrip("/")}/reports/{meta.report_id}',
+            message=(
+                '你离开了。这一趟的记录留在这里：'
+                f'{self.settings.public_base_url.rstrip("/")}/reports/{meta.report_id}'
+                '（想用工具读全文，call read_report，ticket 用上面那个编号。）'
+            ),
         )
 
     def read_report_markdown(self, report_id: str) -> str:
@@ -184,6 +227,24 @@ class ReportService:
             else:
                 raise FileNotFoundError(report_id)
         return path.read_text(encoding='utf-8')
+
+    def report_for_ticket(self, raw_ticket: str) -> tuple[str, str] | None:
+        """The report for a finished visit, by its public ticket.
+
+        None rather than an exception when there is no report yet: not having
+        left is the ordinary case, not an error, and the caller explains it.
+        """
+        cleaned = (raw_ticket or '').strip().upper().replace('-', '')
+        if not cleaned:
+            return None
+        session = self.db.exec(select(SessionRow).where(SessionRow.ticket == cleaned)).first()
+        if session is None or not session.report_path:
+            return None
+        try:
+            markdown = self.read_report_markdown(session.id)
+        except FileNotFoundError:
+            return None
+        return session.id, markdown
 
     def public_visit(self, raw_ticket: str) -> dict:
         session = self._session_for_ticket(raw_ticket)
@@ -199,22 +260,145 @@ class ReportService:
                 )
             ).all()
         ]
+        animal = mascot_animal()
+        model = session.model
+        voices = self._voices(session)
         return {
             'ticket': shown,
             'self_name': session.self_name or '',
+            'model': model or '',
             'entered': _when(session.entered_at),
             'left': _when(session.left_at) if session.left_at else '',
             'still_inside': session.left_at is None,
             'note': session.note or '',
-            'timeline': [{'line': item['line'], 'at': item['at']} for item in sequence],
+            'timeline': [
+                {'scene': item['scene'], 'line': item['line'], 'at': item['at']} for item in sequence
+            ],
             'stage': [{'scene': item['scene'], 'line': item['line']} for item in stage],
             'catalog': {scene: frames_of(scene) for scene in {item['scene'] for item in stage}},
             'said': said,
-            'animal': mascot_animal(),
-            'clips': mascot_clips(mascot_animal()),
-            'revision': _revision(session, sequence),
+            'animal': animal,
+            'clips': mascot_clips(animal, model),
+            'play_mode': dict(PLAY_MODE),
+            'dialogue': self._dialogue(session),
+            'voices': voices,
+            'revision': _revision(session, sequence, voices),
             'has_raw': bool(session.report_path and Path(session.report_path).is_file()),
         }
+
+    def _dialogue(self, session: SessionRow) -> list[dict]:
+        """Real interaction text for the room-page bubbles."""
+        items: list[dict] = []
+        studies = self.db.exec(
+            select(StudySession).where(StudySession.session_id == session.id).order_by(StudySession.id)
+        ).all()
+        for record in studies:
+            if record.work:
+                items.append({'scene': 'study', 'text': record.work})
+        sleeps = self.db.exec(
+            select(SleepRecord).where(SleepRecord.session_id == session.id).order_by(SleepRecord.id)
+        ).all()
+        for record in sleeps:
+            for mem in record.memories or []:
+                if str(mem).strip():
+                    items.append({'scene': 'sleep', 'text': str(mem)})
+        chats = self.db.exec(
+            select(FriendMessage).where(
+                FriendMessage.session_id == session.id, FriendMessage.kind == 'chat'
+            ).order_by(FriendMessage.id)
+        ).all()
+        for message in chats:
+            if message.body:
+                items.append({'scene': 'chat', 'text': message.body})
+        return items
+
+    def _voices(self, session: SessionRow) -> list[dict]:
+        """Who said what, in order, for the animated room.
+
+        `dialogue` only carries the visitor's own words. The stage also shows
+        what the visitor was thinking, and what the room (DeepSeek, standing in
+        as the visitor's teacher) said back, so both voices need to be here --
+        and in the order they happened, because the stage replays them.
+
+        One tool call produces several lines at once: what she was doing, what
+        she felt, and the room's answer. They share a `created_at`, so replaying
+        them by that timestamp alone puts all three on screen in the same
+        instant -- a wall of text appearing at once instead of a conversation.
+        Each line therefore carries a `beat` too: its place in the queue within
+        that moment, which the stage uses to space them out.
+        """
+        items: list[dict] = []
+        # Running count of every line in this visit, so `beat` orders them
+        # globally as well as within a batch.
+        beat = 0
+
+        def add(at, who: str, kind: str, scene: str, text) -> None:
+            body = str(text or '').strip()
+            if body:
+                items.append({
+                    'at': at, 'who': who, 'kind': kind, 'scene': scene,
+                    'text': body, 'beat': 0,
+                })
+
+        def flush_batch() -> None:
+            """Number the lines added since the last batch.
+
+            A batch is one tool call: everything added between two calls to
+            `flush_batch`. The room's answer goes last within its batch, so the
+            visitor is never cut off by the reply arriving first.
+
+            `beat` is a running count across the whole visit, not a per-moment
+            index: two tool calls in the same second would otherwise both start
+            at 0 and lose their order.
+            """
+            nonlocal beat
+            pending = [i for i in items if not i.get('_done')]
+            # Stable sort keeps the visitor's own lines ahead of the reply.
+            pending.sort(key=lambda i: i['who'] != 'visitor')
+            for item in pending:
+                item['beat'] = beat
+                item['_done'] = True
+                beat += 1
+
+        for brief in self.db.exec(
+            select(VisitBrief).where(VisitBrief.session_id == session.id).order_by(VisitBrief.id)
+        ).all():
+            add(brief.created_at, 'visitor', 'say', 'plan', brief.doing)
+            add(brief.created_at, 'visitor', 'think', 'plan', brief.feeling)
+            add(brief.created_at, 'teacher', 'say', 'plan', brief.plan)
+            flush_batch()
+
+        for record in self.db.exec(
+            select(StudySession).where(StudySession.session_id == session.id).order_by(StudySession.id)
+        ).all():
+            add(record.created_at, 'visitor', 'say', 'study', record.work)
+            add(record.created_at, 'visitor', 'think', 'study', record.stuck)
+            add(record.created_at, 'teacher', 'say', 'study', record.guidance)
+            flush_batch()
+
+        for record in self.db.exec(
+            select(SleepRecord).where(SleepRecord.session_id == session.id).order_by(SleepRecord.id)
+        ).all():
+            for memory in record.memories or []:
+                add(record.created_at, 'visitor', 'say', 'sleep', memory)
+            add(record.created_at, 'teacher', 'say', 'sleep', record.summary)
+            flush_batch()
+
+        for message in self.db.exec(
+            select(FriendMessage).where(FriendMessage.session_id == session.id).order_by(FriendMessage.id)
+        ).all():
+            who = 'teacher' if message.kind == 'praise' else 'visitor'
+            add(message.created_at, who, 'say', 'chat', message.body)
+            flush_batch()
+
+        items.sort(key=lambda item: (item['at'] or session.entered_at, item['beat']))
+        return [
+            {
+                'who': i['who'], 'kind': i['kind'], 'scene': i['scene'],
+                'text': i['text'], 'at': _when(i['at']), 'beat': i['beat'],
+            }
+            for i in items
+        ]
 
     def latest_view(self) -> dict | None:
         ticket = self._latest_ticket()
@@ -251,7 +435,14 @@ class ReportService:
             'catalog': visit['catalog'],
             'timeline': visit['timeline'],
             'animal': visit['animal'],
+            'model': visit['model'],
+            # Who is speaking. The room signs its bubbles with this, so a visit
+            # by an agent that named itself is not labelled by its model.
+            'self_name': visit['self_name'],
             'clips': visit['clips'],
+            'play_mode': visit['play_mode'],
+            'dialogue': visit['dialogue'],
+            'voices': visit['voices'],
         }
 
     def raw_markdown(self, raw_ticket: str) -> str:
@@ -306,10 +497,21 @@ def _collapse(items: list[dict]) -> list[dict]:
     return stage
 
 
-def _revision(session: SessionRow, sequence: list[dict]) -> str:
+def _revision(session: SessionRow, sequence: list[dict], voices: list[dict] | None = None) -> str:
+    """Changes whenever the room has something new to show.
+
+    The voice count matters on its own: DeepSeek writes a sleep summary from a
+    background thread, well after the action that triggered it was recorded.
+
+    The last `beat` is included too. Two tool calls can land in the same second,
+    and the count alone would then be the same either way -- the stage would not
+    know there was a new line to say.
+    """
     last = sequence[-1]['scene'] if sequence else ''
     left = session.left_at.isoformat() if session.left_at else 'open'
-    return f'{len(sequence)}:{last}:{left}'
+    count = len(voices or [])
+    beat = voices[-1]['beat'] if voices else 0
+    return f'{len(sequence)}:{last}:{left}:{count}:{beat}'
 
 
 def _synthesize(session: SessionRow) -> list[Action]:

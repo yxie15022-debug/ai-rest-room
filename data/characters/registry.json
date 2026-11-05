@@ -1,0 +1,30 @@
+{
+  "default": {
+    "asset": "data/characters/default/character.glb",
+    "source": "https://poly.pizza/m/kZ3DmIoGip",
+    "credit": "Casual 2 by Quaternius, CC0",
+    "color": [0.62, 0.62, 0.66],
+    "accent": [0.82, 0.82, 0.85]
+  },
+  "deepseek": {
+    "asset": "data/characters/deepseek/character.glb",
+    "source": "https://poly.pizza/m/5EGWBMpuXq",
+    "credit": "Adventurer by Quaternius, CC0",
+    "color": [0.26, 0.55, 0.91],
+    "accent": [0.85, 0.92, 1.00]
+  },
+  "claude": {
+    "asset": "data/characters/claude/character.glb",
+    "source": "https://poly.pizza/m/I1gTjmuK2m",
+    "credit": "King by Quaternius, CC0",
+    "color": [0.85, 0.55, 0.40],
+    "accent": [1.00, 0.85, 0.70]
+  },
+  "gpt": {
+    "asset": "data/characters/gpt/character.glb",
+    "source": "https://poly.pizza/m/7pn3R6hPvE",
+    "credit": "Farmer by Quaternius, CC0",
+    "color": [0.20, 0.78, 0.55],
+    "accent": [0.80, 1.00, 0.90]
+  }
+}

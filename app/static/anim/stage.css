@@ -1,0 +1,316 @@
+:root {
+  --paper: #fffaf3;
+  --ink: #221f1a;
+  --line: #e0d6c8;
+  --bg: #f4efe6;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  overflow: hidden;
+  font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* As a desktop pet the room IS the window: the pet window is clipped to the
+   cut-out room's outline, so anything this page paints outside it would be a
+   rectangle hanging in mid-air. Nothing has a background there, not even the
+   opening veil, which has no room-shaped edge of its own.
+ *
+ * `html` matters as much as `body`: a background on the root element is what
+ * paints the viewport itself, so leaving it beige put a rectangle of #f4efe6
+ * behind every bubble -- visible as a yellow panel where the window's clip
+ * includes speech but the bubble does not reach, and a yellow rim in the
+ * rounded corners the clip cannot follow. */
+html.pet,
+body.pet,
+body.pet #stage {
+  background: transparent;
+}
+
+body.pet #veil,
+body.pet #caption {
+  display: none;
+}
+
+.room {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+
+.room .bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
+
+.cast {
+  position: absolute;
+  inset: 0;
+}
+
+/* Dusk falls when the visitor goes to bed. */
+.tint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(42% 38% at 38% 36%, rgba(255, 214, 150, 0.30) 0%, transparent 70%),
+    linear-gradient(180deg, #14234a 0%, #1d2a4f 60%, #202a46 100%);
+  mix-blend-mode: multiply;
+  /* Masked to the room art in stage.js, so dusk stops at the walls. */
+  mask-size: 100% 100%;
+  -webkit-mask-size: 100% 100%;
+  transition: none;
+}
+
+/* ------------------------------------------------------------------ puppet */
+
+.puppet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  transition: opacity 0.35s ease;
+}
+
+.puppet .body {
+  position: relative;
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 4px 7px rgba(60, 45, 30, 0.16));
+}
+
+/* Keeps the puppet standing on the floor instead of floating over it. */
+.puppet .shadow {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(66, 48, 30, 0.42), rgba(66, 48, 30, 0));
+}
+
+.puppet .part {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  /* A sprite is drawn at roughly its own resolution, and it is scaled by the
+   * puppet's transform every time the person's depth changes. Asking the
+   * compositor to keep a promoted, pre-rasterised copy makes it resample that
+   * copy as the scale changes -- the softness that came and went as someone
+   * walked. Letting it re-rasterise from the source is what keeps it sharp. */
+  image-rendering: auto;
+}
+
+/* Both start hidden: update() picks the layer that is showing each frame. */
+.puppet .part.pose,
+.puppet .part.clip {
+  display: none;
+}
+
+/* When the visitor is DeepSeek too, shift the teacher so the two never blur. */
+.puppet.twin .body {
+  filter: drop-shadow(0 4px 7px rgba(60, 45, 30, 0.16)) hue-rotate(-38deg) saturate(0.88);
+}
+
+/* ----------------------------------------------------------------- bubbles */
+
+/* One column of speech for the whole room, in the open air above its walls.
+ *
+ * Not a per-character bubble: two chibi characters stand a few hundred pixels
+ * apart and a bubble wide enough to read is wider than that gap, so a bubble
+ * per head ends up on top of the other speaker, and one lifted clear of the
+ * other is a bubble floating with nothing under it. The name inside says who
+ * is talking, and the tint says which side of the conversation it is.
+ *
+ * It hangs above the room: the column is bottom-anchored to the room's top
+ * edge (set in stage.js, because only the layout knows where that is), so new
+ * speech grows upwards into the sky and never covers a face.
+ */
+/* Bubbles are drawn in the window's airspace above the walls, which the clip
+ * has to include for them to be visible -- and a clip is a rectangle, so the
+ * window also owns the corners a bubble cannot round off. Whatever the page
+ * paints there shows: it must be nothing, not the page's paper colour. */
+.speech {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  width: min(560px, 92%);
+  transform: translateX(-50%);
+  padding-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  background: transparent;
+  z-index: 30;
+  /* Room above the room for speech, set from the layout in stage.js; only
+   * when a single bubble outgrows it is --clip raised, and the oldest lines
+   * are trimmed off the top because the newest is the one being said. */
+  max-height: var(--sky, 100vh);
+  padding-top: var(--clip, 0);
+  clip-path: inset(var(--clip, 0) 0 0 0);
+  overflow: hidden;
+}
+
+.bubble {
+  position: relative;
+  max-width: 100%;
+  padding: 9px 15px;
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  font-size: 15px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-shadow: 0 5px 13px rgba(60, 45, 30, 0.16);
+  opacity: 0;
+  transform: translateY(8px) scale(0.94);
+  transition: opacity 0.32s ease, transform 0.32s cubic-bezier(0.2, 1.3, 0.4, 1);
+}
+
+/* The speaker's name, riding above the line they said. Two people share one
+ * small room, so an unsigned bubble is genuinely ambiguous. */
+.bubble .who {
+  display: block;
+  margin: -2px 0 3px;
+  font-size: 12px;
+  line-height: 1.3;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  opacity: 0.62;
+}
+
+.bubble[data-who='teacher'] .who {
+  color: #2c4a80;
+}
+
+.bubble.in {
+  opacity: 1;
+  transform: none;
+}
+
+/* A thought reads as a cloud: dashed, cooler. */
+.bubble.think {
+  border-style: dashed;
+  background: #f6f8ff;
+  color: #39405c;
+  font-style: italic;
+}
+
+.bubble.think::before,
+.bubble.think::after {
+  content: '';
+  position: absolute;
+  left: 26px;
+  top: 100%;
+  border: 0;
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: #f6f8ff;
+  box-shadow: 0 0 0 2px var(--line) inset;
+}
+
+.bubble.think::after {
+  width: 9px;
+  height: 9px;
+  left: 46px;
+  margin-top: 15px;
+}
+
+/* The two voices never blur: each speaker's line is tinted by who said it. */
+.bubble[data-who='teacher'] {
+  background: #eef4ff;
+  border-color: #b9ccef;
+  color: #1d3261;
+}
+
+/* --------------------------------------------------------------- furniture */
+
+#caption {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  padding: 7px 18px;
+  border-radius: 999px;
+  background: rgba(255, 250, 243, 0.92);
+  border: 1px solid var(--line);
+  color: #6e685c;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+#caption.on {
+  opacity: 1;
+}
+
+/* Only in the desktop-pet window, which is frameless and so has no close box
+   of its own. Faint until hovered: it sits on top of the room. Near the top
+   middle rather than the corner, because the corners of a cutaway room are
+   clipped away and a button out there would be invisible and unclickable. */
+#shut {
+  position: absolute;
+  z-index: 6;
+  top: 5%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(34, 31, 26, 0.26);
+  color: #fffaf3;
+  font-size: 11px;
+  line-height: 22px;
+  cursor: pointer;
+  opacity: 0.35;
+  transition: opacity 0.2s ease, background 0.2s ease;
+}
+
+#shut:hover {
+  opacity: 1;
+  background: rgba(34, 31, 26, 0.62);
+}
+
+#veil {
+  position: absolute;
+  z-index: 9;
+  inset: 0;
+  background: var(--bg);
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.7s ease;
+}
+
+#veil.off {
+  opacity: 0;
+}

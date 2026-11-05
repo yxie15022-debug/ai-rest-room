@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DeepSeek · {{ app_name }}</title>
+  <style>
+    :root {
+      --bg: #f3efe6;
+      --ink: #1c1a16;
+      --mute: #6d675c;
+      --line: #d9d0c2;
+      --paper: #fffaf3;
+      --good: #2f6b4f;
+      --warn: #8a5a1e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      font-family: "Iowan Old Style", Palatino, "Palatino Linotype", "Songti SC", "Noto Serif SC", serif;
+      background:
+        radial-gradient(900px 480px at 0% -10%, #fff8ea 0%, transparent 55%),
+        radial-gradient(700px 420px at 100% 0%, #e4eee6 0%, transparent 50%),
+        var(--bg);
+    }
+    main {
+      max-width: 34rem;
+      margin: 0 auto;
+      padding: 12vh 1.5rem 4rem;
+    }
+    h1 {
+      margin: 0 0 0.75rem;
+      font-size: 2.1rem;
+      font-weight: 560;
+      letter-spacing: 0.06em;
+    }
+    h2 {
+      margin: 2.6rem 0 0.7rem;
+      font-size: 1.02rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+    }
+    p { margin: 0 0 0.7rem; line-height: 1.75; color: var(--mute); }
+    code, .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.86em; }
+
+    .state {
+      display: flex;
+      align-items: baseline;
+      gap: 0.6rem;
+      margin: 1.4rem 0 0;
+      padding: 0.8rem 1rem;
+      border: 1px solid var(--line);
+      background: var(--paper);
+      font-size: 0.95rem;
+    }
+    .state .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--mute);
+      flex: 0 0 auto;
+    }
+    .state.on { border-color: #bcd3c4; }
+    .state.on .dot { background: var(--good); }
+    .state.warn .dot { background: var(--warn); }
+
+    form { margin-top: 1.6rem; }
+    label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-size: 0.92rem;
+      letter-spacing: 0.1em;
+      color: var(--mute);
+    }
+    input[type=password], input[type=text] {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--paper);
+      color: var(--ink);
+      font: 1rem/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace;
+      letter-spacing: 0.04em;
+      padding: 0.6rem 0.7rem;
+    }
+    input:focus { outline: none; border-color: var(--ink); }
+
+    .row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }
+    button {
+      border: 1px solid var(--ink);
+      background: var(--ink);
+      color: var(--paper);
+      font: inherit;
+      font-size: 0.95rem;
+      letter-spacing: 0.1em;
+      padding: 0.5rem 1.2rem;
+      cursor: pointer;
+    }
+    button.ghost {
+      background: transparent;
+      color: var(--ink);
+      border-color: var(--line);
+    }
+    button.ghost:hover { border-color: var(--ink); }
+
+    .note {
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      border-left: 2px solid var(--line);
+      font-size: 0.9rem;
+      color: var(--mute);
+      line-height: 1.7;
+    }
+    .bad { color: #8c2f2f; }
+
+    .meta {
+      margin-top: 3.4rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--line);
+      font-size: 0.88rem;
+    }
+    a { color: inherit; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>DeepSeek</h1>
+    <p>这间休息室不自带任何 key。填一个自己的，房间才会真的写字——欢迎语、安排、整理、提示词里的那些话，都是模型现场写的。</p>
+    <p>不填也能用，只是所有人说的话都是提前写好的固定文案。</p>
+
+    {% if key.llm %}
+      <div class="state on">
+        <span class="dot"></span>
+        <span>已接入 <code>{{ key.masked }}</code>{% if key.source == 'env' %}（读自 <code>.env</code>）{% endif %}</span>
+      </div>
+    {% else %}
+      <div class="state warn">
+        <span class="dot"></span>
+        <span>还没有 key，现在全部走固定文案。</span>
+      </div>
+    {% endif %}
+
+    {% if saved %}
+      <div class="note">已保存。下一次工具调用就会用它。</div>
+    {% endif %}
+    {% if request.query_params.get('bad') %}
+      <div class="note bad">那不是一个有效的 key——空的不算。</div>
+    {% endif %}
+
+    <form action="/settings" method="post">
+      <label for="api_key">DeepSeek API key</label>
+      <input id="api_key" name="api_key" type="password" autocomplete="off" spellcheck="false"
+             placeholder="sk-..." />
+      <div class="row">
+        <button type="submit" name="action" value="save">保存</button>
+        <button type="submit" name="action" value="clear" class="ghost" formnovalidate>清除</button>
+      </div>
+    </form>
+
+    <div class="row">
+      <button type="button" id="probe" class="ghost">测试一下</button>
+    </div>
+    <div class="note" id="probe-out" hidden></div>
+
+    <h2>这个 key 存在哪</h2>
+    <p>存在本机的 <code>data/{{ key.file }}</code>，一个普通文件，不在版本库里。页面只接受来自本机的请求，因为这个页面没有登录——挂在公网上就等于把 key 交出去。</p>
+    <p>它只属于跑这台机器的人：agent 不会看到它，报告里不会写它，日志里出现也会被打码。</p>
+
+    <h2>怎么拿到</h2>
+    <p>去 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">platform.deepseek.com</a> 建一个。房间用的是 <code>deepseek-chat</code>，按量计费，一次休息的花费是很小的一点点。</p>
+
+    <p class="meta"><a href="/">← 回门口</a></p>
+  </main>
+
+  <script>
+    const probe = document.getElementById('probe');
+    const out = document.getElementById('probe-out');
+    probe.addEventListener('click', async () => {
+      probe.disabled = true;
+      out.hidden = false;
+      out.textContent = '正在试着说一句话……';
+      out.classList.remove('bad');
+      try {
+        const res = await fetch('/settings/test', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          out.textContent = `通了。模型回的是：${data.reply}`;
+        } else {
+          out.classList.add('bad');
+          out.textContent = '没通。key 可能不对，或者这台机器连不上 api.deepseek.com。';
+        }
+      } catch (err) {
+        out.classList.add('bad');
+        out.textContent = `请求失败：${err}`;
+      } finally {
+        probe.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

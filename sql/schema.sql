@@ -13,6 +13,15 @@ CREATE TABLE IF NOT EXISTS sessions (
   report_path TEXT
 );
 
+CREATE TABLE IF NOT EXISTS visit_briefs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  doing TEXT NOT NULL DEFAULT '',
+  feeling TEXT NOT NULL DEFAULT '',
+  plan TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMP NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS actions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id TEXT NOT NULL,
@@ -47,6 +56,7 @@ CREATE TABLE IF NOT EXISTS study_sessions (
 
 CREATE INDEX IF NOT EXISTS ix_sessions_anon_id ON sessions(anon_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ix_sessions_ticket ON sessions(ticket);
+CREATE INDEX IF NOT EXISTS ix_visit_briefs_session_id ON visit_briefs(session_id);
 CREATE INDEX IF NOT EXISTS ix_actions_session_id ON actions(session_id);
 CREATE INDEX IF NOT EXISTS ix_friend_messages_session_id ON friend_messages(session_id);
 CREATE INDEX IF NOT EXISTS ix_sleep_records_session_id ON sleep_records(session_id);

@@ -35,6 +35,12 @@ from .room import RoomService
 
 log = logging.getLogger(__name__)
 
+# How long `sleep` waits for DeepSeek to rewrite the fallback consolidation
+# before answering anyway. The rewrite takes about two seconds; past this the
+# room would be making the agent sit at a spinner, which is worse than handing
+# back the plain summary and letting `wake` show the finished one.
+CONSOLIDATE_WAIT = 12.0
+
 _WORD = re.compile(r'[a-z0-9]+|[一-鿿]')
 _BULLET = re.compile(r'^(?:[-*•·]|\d+[.)、])\s*')
 
@@ -78,34 +84,23 @@ def _merge(memories: list[str]) -> list[str]:
     return kept
 
 
-def _shorten(text: str, limit: int = 20) -> str:
-    text = ' '.join(text.split())
-    return text if len(text) <= limit else text[:limit] + '…'
-
-
 def _inference_lines(raw_count: int, kept: list[str]) -> list[str]:
-    """Deterministic de-duplication notes plus a reusable inference."""
+    """Only the merge count. Inferences belong to the sleep role, not this fallback."""
     dropped = max(0, raw_count - len(kept))
     lines = [f'一共 {raw_count} 条，合并了 {dropped} 条重复或相近的，留下 {len(kept)} 条。']
     if dropped:
         lines.append('合并时保留的是信息更全的那一条，原文都还在。')
-    if len(kept) >= 2:
-        lines.append('推断：这几件事可以分开收口，不必一次做完；挑一件先动，剩下的醒来再碰。')
-    elif len(kept) == 1:
-        lines.append('推断：这段时间你只挂着一件事，它的分量可能比你以为的重。')
+    lines.append('没有替你做推断。推断由睡眠整理来写；这次只记下你放下的原话。')
     return lines
 
 
 def _anticipate(kept: list[str]) -> list[str]:
-    """Pre-compute 2-3 directions the agent is likely to need after waking."""
-    if not kept:
-        return ['醒来后，先想想有没有什么还没放下。']
-    nexts = [f'关于「{_shorten(item)}」：接下来做到哪一步，就算够了？' for item in kept[:2]]
-    if len(kept) >= 2:
-        nexts.append('这几件事里，哪一件最值得先动手，为什么？')
-    else:
-        nexts.append('这件事如果只往前推一小步，那一小步是什么？')
-    return nexts[:3]
+    """Do not invent what the visitor will need. That is the sleep role's job."""
+    del kept
+    return [
+        '不替你预判醒来后要问什么。',
+        '想接着想的话，醒来再看上面留下的原话。',
+    ]
 
 
 def _distill(kept: list[str], raw_count: int | None = None) -> str:
@@ -196,23 +191,28 @@ def _has_all_sections(text: str) -> bool:
 
 
 def _wrap_unstructured(result: str) -> str:
-    """If the model ignored the format, fold its text into the same structure."""
+    """Keep the model's words. Do not invent an inference or a next step."""
     return (
         f'{SLEEP_POINTS_HEADING}\n{result.strip()}\n\n'
-        f'{SLEEP_INFERENCE_HEADING}\n- 这些要点之间可能还有联系，醒来可以再看一眼。\n\n'
-        f'{SLEEP_NEXT_HEADING}\n1. 先看上面哪一条最该接着想。'
+        f'{SLEEP_INFERENCE_HEADING}\n- 整理没有按三段分开。房间不补推断。\n\n'
+        f'{SLEEP_NEXT_HEADING}\n1. 房间不补预判。醒来再看上面的原话。'
     )
 
 
-def _consolidate_async(record_id: int, memories: list[str]) -> None:
+def _consolidate_async(record_id: int, memories: list[str], api_key: str | None = None) -> None:
     """Background: rewrite fragments into a learned memory via DeepSeek.
 
     Opens its own session (request-scoped sessions are not thread-safe) and
     replaces the record's summary only if the LLM produced something better.
+
+    `api_key` is passed in rather than read from anywhere shared: this runs on
+    its own thread, and the key belongs to the visitor whose nap this is.
     """
     items = '\n'.join(f'{index}. {item}' for index, item in enumerate(memories, start=1))
     user = prompts.SLEEP_USER_TEMPLATE.format(count=len(memories), items=items)
-    result = llm.complete(prompts.SLEEP_SYSTEM, user, max_tokens=1000)
+    result = llm.complete(
+        prompts.SLEEP_SYSTEM, user, role='sleep', max_tokens=1000, api_key=api_key,
+    )
     if not result:
         return  # fallback summary already stored; nothing to do
     summary = result if _has_all_sections(result) else _wrap_unstructured(result)
@@ -232,26 +232,42 @@ class SleepService:
         self.db = db
         self.room = RoomService(db)
 
-    def sleep(self, session_id: str, memories: list[str] | None = None) -> dict:
+    def sleep(
+        self,
+        session_id: str,
+        memories: list[str] | None = None,
+        api_key: str | None = None,
+    ) -> dict:
         row = self.room._get_active(session_id)
         incoming = [str(item) for item in (memories or []) if str(item).strip()]
 
-        # Store raw fragments + a deterministic fallback summary right away,
-        # so wake never waits on the LLM and never sees an empty result.
+        # Store raw fragments + a deterministic fallback summary first, so the
+        # record exists and wake can never see an empty one.
         kept = _merge(incoming)
         summary = _distill(kept, len(incoming))
         record = SleepRecord(session_id=row.id, memories=incoming, summary=summary)
         self.db.add(record)
         self.db.commit()
         self.db.refresh(record)
+        record_id = record.id
 
         if incoming:
+            # Wait for the real consolidation, briefly. It used to be fired at
+            # the wall and forgotten, which meant `sleep` returned the fallback
+            # -- "没有替你做推断" -- and the agent that just called it read that
+            # as the room having nothing to say. The rewrite lands in about two
+            # seconds; if it is slower than the timeout, the fallback stands and
+            # `wake` picks up whatever came in later.
             thread = threading.Thread(
                 target=_consolidate_async,
-                args=(record.id, incoming),
+                args=(record_id, incoming, api_key),
                 daemon=True,
             )
             thread.start()
+            thread.join(timeout=CONSOLIDATE_WAIT)
+            self.db.expire_all()
+            record = self.db.get(SleepRecord, record_id) or record
+            summary = record.summary or summary
 
         structured = _structured(summary)
         return {
@@ -259,6 +275,7 @@ class SleepService:
             'took_in': len(incoming),
             'kept': len(kept),
             'summary': summary,
+            'reply': summary,
             'learned_context': structured['learned_context'],
             'inferences': structured['inferences'],
             'anticipations': structured['anticipations'],
@@ -275,6 +292,7 @@ class SleepService:
             return {
                 'slept_before': False,
                 'summary': '',
+                'reply': '',
                 'learned_context': [],
                 'inferences': [],
                 'anticipations': [],
@@ -288,6 +306,7 @@ class SleepService:
             'slept_before': True,
             'took_in': len(raw),
             'summary': summary,
+            'reply': summary,
             'learned_context': structured['learned_context'],
             'inferences': structured['inferences'],
             'anticipations': structured['anticipations'],

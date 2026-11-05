@@ -41,12 +41,33 @@
       overflow: hidden;
       box-shadow: 0 6px 24px rgba(60, 40, 20, 0.08);
       background: #fff;
+      position: relative;
     }
     #stage-img {
       display: block;
       width: 272px;
       max-width: 100%;
       height: auto;
+    }
+    #bubbles { position: absolute; inset: 0; pointer-events: none; }
+    .bubble {
+      position: absolute;
+      max-width: 64%;
+      padding: 0.35rem 0.55rem;
+      background: #fffaf3;
+      color: #221f1a;
+      border: 1px solid #e0d6c8;
+      border-radius: 10px;
+      font-size: 0.78rem;
+      line-height: 1.25;
+      box-shadow: 0 3px 10px rgba(60, 40, 20, 0.12);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .bubble.visitor { top: 8%; right: 6%; }
+    .bubble.visitor::after {
+      content: ''; position: absolute; bottom: -7px; right: 14px;
+      border: 7px solid transparent; border-top-color: #fffaf3; border-bottom: 0;
     }
     .timeline { list-style: none; padding: 0; margin: 0 0 2rem; }
     .timeline li {
@@ -92,7 +113,7 @@
       {% if visit.self_name %} · {{ visit.self_name }}{% endif %}
     </p>
     <p id="moment">此刻：{{ visit.stage[-1].line if visit.stage else '进门' }}</p>
-    <div id="stage-wrap"><img id="stage-img" src="/mascot/{{ visit.animal }}/{{ visit.stage[-1].scene if visit.stage else 'sit' }}/0" alt="{{ visit.stage[-1].line if visit.stage else '' }}" /></div>
+    <div id="stage-wrap"><img id="stage-img" src="/mascot/{{ visit.animal }}/{{ visit.model or 'default' }}/{{ visit.stage[-1].scene if visit.stage else 'sit' }}/0?v={{ visit.revision }}" alt="{{ visit.stage[-1].line if visit.stage else '' }}" /><div id="bubbles"></div></div>
     <ol class="timeline">
       {% for item in visit.timeline %}
       <li><time>{{ item.at }}</time><span>{{ item.line }}</span></li>
@@ -125,29 +146,58 @@
     <p class="raw"><a href="/r/{{ visit.ticket }}/raw">原始记录</a></p>
     {% endif %}
   </main>
-  <script id="visit-data" type="application/json">{{ {'stage': visit.stage, 'animal': visit.animal, 'clips': visit.clips, 'revision': visit.revision, 'still_inside': visit.still_inside} | tojson }}</script>
+  <script id="visit-data" type="application/json">{{ {'stage': visit.stage, 'animal': visit.animal, 'model': visit.model or 'default', 'clips': visit.clips, 'play_mode': visit.play_mode, 'dialogue': visit.dialogue, 'revision': visit.revision, 'still_inside': visit.still_inside} | tojson }}</script>
   <script>
     const data = JSON.parse(document.getElementById('visit-data').textContent);
     const img = document.getElementById('stage-img');
     const momentEl = document.getElementById('moment');
+    const bubblesEl = document.getElementById('bubbles');
     let sceneIndex = 0;
     let frameIndex = 0;
-    const CLIP_FOR = {wake:'sleep', listen:'chat', name:'sit', leave:'enter'};
+    let finished = false;
+    const CLIP_FOR = {wake:'sleep', listen:'chat', name:'sit', leave:'enter', plan:'sit'};
     function clipFor(scene) { return CLIP_FOR[scene] || scene; }
+    function dialogueFor(scene) {
+      const items = (data.dialogue || []).filter(d => d.scene === scene);
+      if (!items.length) return null;
+      return items[frameIndex % items.length];
+    }
+    function paintBubbles(scene) {
+      bubblesEl.innerHTML = '';
+      const item = dialogueFor(scene);
+      if (!item) return;
+      const div = document.createElement('div');
+      div.className = 'bubble visitor';
+      div.textContent = item.text;
+      bubblesEl.appendChild(div);
+    }
     function paint() {
       const stage = data.stage || [];
-      if (!stage.length) return;
+      if (!stage.length || finished) return;
       const item = stage[sceneIndex];
       const scene = clipFor(item.scene);
       const count = (data.clips || {})[scene] || 0;
       if (!count) return;
-      img.src = '/mascot/' + data.animal + '/' + scene + '/' + frameIndex;
+      const model = data.model || 'default';
+      img.src = '/mascot/' + data.animal + '/' + model + '/' + scene + '/' + frameIndex + '?v=' + data.revision;
       img.alt = item.line || '';
       momentEl.textContent = '此刻：' + item.line;
+      paintBubbles(scene);
       frameIndex += 1;
+      const mode = (data.play_mode || {})[scene] || 'loop';
       if (frameIndex >= count) {
-        frameIndex = 0;
-        if (sceneIndex < stage.length - 1) sceneIndex += 1;
+        if (mode === 'once') {
+          frameIndex = count - 1;
+          if (sceneIndex < stage.length - 1) {
+            sceneIndex += 1;
+            frameIndex = 0;
+          } else {
+            finished = true;
+          }
+        } else {
+          frameIndex = 0;
+          if (sceneIndex < stage.length - 1) sceneIndex += 1;
+        }
       }
     }
     paint();

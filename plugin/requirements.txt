@@ -1,3 +1,6 @@
-# Only the local animation window needs Pillow; the server does not.
-# tkinter ships with the official Python builds on Windows and macOS.
+# Only the local animation window needs these; the server does not.
+# pywebview hosts the animated room as a desktop pet (WebView2 on Windows,
+# WebKit elsewhere). Without it open_room.py falls back to the tkinter frame
+# player, which needs Pillow; tkinter itself ships with the official builds.
+pywebview>=5
 Pillow>=10

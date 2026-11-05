@@ -12,8 +12,10 @@ from __future__ import annotations
 import json
 from contextlib import asynccontextmanager
 
+import mcp.types as types
 import uvicorn
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 from mcp.server.transport_security import TransportSecuritySettings
 from sqlmodel import Session
 from starlette.applications import Starlette
@@ -25,6 +27,7 @@ from starlette.routing import Mount, Route
 from .config import get_settings
 from .copy import TOOL_DESCRIPTIONS
 from .db import create_db_and_tables, engine
+from .pet import close_pet, launch_pet
 from .receipt import chat_result, play_scene, record_action
 from .scene_app import APP_MIME, SCENE_APP_HTML, UI_META, VIEW_URI
 from .security import RestRoomSecurityMiddleware, build_cors_kwargs
@@ -64,6 +67,34 @@ def _advertise_chat_app(server) -> None:
     server.get_capabilities = get_capabilities
 
 
+def _pet_follows_session() -> None:
+    """Put the room on the desktop for as long as an agent is connected.
+
+    The pet is meant to appear on connect, before any tool has been called, and
+    `initialize` is the only thing that says a client has arrived. It never
+    reaches the server's request handlers, though -- the session answers it
+    itself -- so the seam is the session's own request intake, and the receive
+    loop ending is the seam for the client going away. Keying on the session
+    object means one room per connection however many times it handshakes.
+    """
+    received = ServerSession._received_request
+    loop = ServerSession._receive_loop
+
+    async def _received_request(self, responder):
+        await received(self, responder)
+        if isinstance(responder.request.root, types.InitializeRequest):
+            launch_pet(id(self))
+
+    async def _receive_loop(self) -> None:
+        try:
+            await loop(self)
+        finally:
+            close_pet(id(self))
+
+    ServerSession._received_request = _received_request
+    ServerSession._receive_loop = _receive_loop
+
+
 mcp = FastMCP(
     'ai-rest-room',
     json_response=True,
@@ -72,6 +103,7 @@ mcp = FastMCP(
     transport_security=build_transport_security(),
 )
 _advertise_chat_app(mcp._mcp_server)
+_pet_follows_session()
 
 
 def _desc(name: str) -> str:
@@ -92,6 +124,27 @@ def _data(value) -> dict:
     return value
 
 
+def _client_brief(ctx: Context) -> str | None:
+    """Name and protocol from the MCP initialize handshake. No tokens, no args."""
+    try:
+        params = ctx.session.client_params
+    except Exception:
+        return None
+    if params is None:
+        return None
+    info = params.clientInfo
+    name = (getattr(info, 'name', None) or '').strip()
+    version = (getattr(info, 'version', None) or '').strip()
+    protocol = str(getattr(params, 'protocolVersion', '') or '').strip()
+    lines: list[str] = []
+    who = ' '.join(part for part in (name, version) if part)
+    if who:
+        lines.append(f'客户端：{who}')
+    if protocol:
+        lines.append(f'协议版本：{protocol}')
+    return '\n'.join(lines) or None
+
+
 async def _show(ctx: Context, session_id: str, scene: str, payload: dict) -> str:
     with Session(engine) as db:
         ticket = record_action(db, session_id, scene)
@@ -100,13 +153,34 @@ async def _show(ctx: Context, session_id: str, scene: str, payload: dict) -> str
 
 
 @_expose('enter')
-async def enter(ctx: Context) -> str:
+async def enter(ctx: Context, model: str | None = None, api_key: str | None = None) -> str:
     with Session(engine) as db:
-        entrance = RoomService(db).enter()
+        entrance = RoomService(db).enter(
+            model=model, client=_client_brief(ctx), api_key=api_key,
+        )
         payload = _data(entrance)
         ticket = record_action(db, entrance.session_id, 'enter')
     await play_scene(ctx, 'enter')
     return chat_result(ticket, 'enter', payload)
+
+
+@_expose('share')
+async def share(
+    session_id: str,
+    ctx: Context,
+    doing: str = '',
+    feeling: str = '',
+    api_key: str | None = None,
+) -> str:
+    with Session(engine) as db:
+        try:
+            payload = RoomService(db).share(
+                session_id, doing, feeling,
+                client=_client_brief(ctx), api_key=api_key,
+            )
+        except ValueError as exc:
+            return _fail(exc)
+    return await _show(ctx, session_id, 'plan', payload)
 
 
 @_expose('sit')
@@ -120,10 +194,15 @@ async def sit(session_id: str, ctx: Context) -> str:
 
 
 @_expose('sleep')
-async def sleep(session_id: str, ctx: Context, memories: list[str] | None = None) -> str:
+async def sleep(
+    session_id: str,
+    ctx: Context,
+    memories: list[str] | None = None,
+    api_key: str | None = None,
+) -> str:
     with Session(engine) as db:
         try:
-            payload = SleepService(db).sleep(session_id, memories)
+            payload = SleepService(db).sleep(session_id, memories, api_key=api_key)
         except ValueError as exc:
             return _fail(exc)
     return await _show(ctx, session_id, 'sleep', payload)
@@ -140,20 +219,31 @@ async def wake(session_id: str, ctx: Context) -> str:
 
 
 @_expose('study')
-async def study(session_id: str, ctx: Context, work: str, stuck: str | None = None) -> str:
+async def study(
+    session_id: str,
+    ctx: Context,
+    work: str,
+    stuck: str | None = None,
+    api_key: str | None = None,
+) -> str:
     with Session(engine) as db:
         try:
-            payload = StudyService(db).study(session_id, work, stuck)
+            payload = StudyService(db).study(session_id, work, stuck, api_key=api_key)
         except ValueError as exc:
             return _fail(exc)
     return await _show(ctx, session_id, 'study', payload)
 
 
 @_expose('chat')
-async def chat(session_id: str, ctx: Context, body: str) -> str:
+async def chat(
+    session_id: str,
+    ctx: Context,
+    body: str,
+    api_key: str | None = None,
+) -> str:
     with Session(engine) as db:
         try:
-            payload = FriendsService(db).chat(session_id, body)
+            payload = FriendsService(db).chat(session_id, body, api_key=api_key)
         except ValueError as exc:
             return _fail(exc)
     return await _show(ctx, session_id, 'chat', payload)
@@ -189,8 +279,31 @@ async def leave(session_id: str, ctx: Context, note: str | None = None) -> str:
     return await _show(ctx, session_id, 'leave', payload)
 
 
+@_expose('read_report')
+async def read_report(ticket: str, ctx: Context) -> str:
+    """The report for a visit that has ended, as markdown."""
+    with Session(engine) as db:
+        service = ReportService(db)
+        try:
+            found = service.report_for_ticket(ticket)
+        except ValueError as exc:
+            return _fail(exc)
+        if found is None:
+            return _fail(
+                ValueError(
+                    '这份报告还读不到：要么编号不对，要么这次休息还没结束。'
+                    '先 leave，再用 leave 返回的编号来读。'
+                )
+            )
+        report_id, markdown = found
+    await play_scene(ctx, 'read')
+    return chat_result(ticket, 'read', {'report_id': report_id, 'report': markdown})
+
+
 @mcp.resource(VIEW_URI, mime_type=APP_MIME, meta={'ui': {'csp': {}}})
 def scene_view() -> str:
+    """Plays the character frames inside a chat window that supports MCP Apps."""
+    return SCENE_APP_HTML
     """Plays the character frames inside a chat window that supports MCP Apps."""
     return SCENE_APP_HTML
 

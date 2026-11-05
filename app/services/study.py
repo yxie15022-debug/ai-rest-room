@@ -1,13 +1,13 @@
 """Study: HEART-style reflection (arXiv 2509.22876).
 
-The agent describes what it was doing (and where it is stuck). The room asks
-DeepSeek to walk it through HEART's alternating affect — exploration (broaden)
-and vigilance (sharpen) in G+ G- G+ G- — tailored to that concrete work. The
-four phases are returned as structured data too, so a host can show the
-rhythm; if the model drops a phase, the fixed copy fills it in.
+The agent brings what it was doing (and maybe where it feels stuck). DeepSeek
+「梳理」reads that dialogue, decides the real stuck point, and walks through
+HEART's alternating affect — exploration then vigilance in G+ G- G+ G- —
+without the room asserting "you are stuck at X". The four phases come back
+as structured data too; if the model drops a phase, fixed copy fills it in.
 
-No LLM (or any failure) -> the fixed STUDY_GUIDANCE copy, also in four phases.
-The room never redoes the work, only helps it look again.
+No LLM (or any failure) -> fixed STUDY_GUIDANCE, still in four phases. The
+room never redoes the work, only helps it look again.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ def _parse_phases(text: str) -> list[dict]:
     phases: list[dict] = []
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        phases.append(_phase(match.group(0), text[match.end():end]))
+        phases.append(_phase(match.group(0), text[match.end() : end]))
     return _order(phases)
 
 
@@ -52,12 +52,19 @@ def _complete_phases(generated: str | None) -> tuple[str, list[dict]]:
     """Keep the model text, fill in any missing G+/G- phase with fixed copy."""
     text = (generated or '').strip()
     present = {label for label, _body in STUDY_STAGES if label in text}
-    missing = [
-        f'{label}\n{body}' for label, body in STUDY_STAGES if label not in present
-    ]
+    missing = [f'{label}\n{body}' for label, body in STUDY_STAGES if label not in present]
     if missing:
         text = (text + '\n\n' if text else '') + '\n\n'.join(missing)
     return text, _parse_phases(text)
+
+
+def _fallback(work: str, blocker: str | None) -> tuple[str, list[dict]]:
+    """Fixed HEART copy. Echo the visitor's words as context, not as a verdict."""
+    heard = [f'你说正在做的是：{work}']
+    if blocker:
+        heard.append(f'你还提到：{blocker}')
+    body, phases = STUDY_GUIDANCE, _parse_phases(STUDY_GUIDANCE)
+    return '\n'.join(heard) + '\n\n' + body, phases
 
 
 class StudyService:
@@ -65,14 +72,20 @@ class StudyService:
         self.db = db
         self.room = RoomService(db)
 
-    def study(self, session_id: str, work: str, stuck: str | None = None) -> dict:
+    def study(
+        self,
+        session_id: str,
+        work: str,
+        stuck: str | None = None,
+        api_key: str | None = None,
+    ) -> dict:
         row = self.room._get_active(session_id)
         text = (work or '').strip()
         if not text:
             raise ValueError('study 需要说说你刚才在做的事')
         blocker = (stuck or '').strip() or None
 
-        guidance, phases = self._guidance(text, blocker)
+        guidance, phases = self._guidance(text, blocker, api_key)
 
         record = StudySession(session_id=row.id, work=text, stuck=blocker, guidance=guidance)
         self.db.add(record)
@@ -81,22 +94,23 @@ class StudyService:
             'work': text,
             'stuck': blocker,
             'guidance': guidance,
+            'reply': guidance,
             'phases': phases,
             'message': '想不明白不丢人。照着这个顺序，再看一遍。',
         }
 
-    def _guidance(self, work: str, blocker: str | None) -> tuple[str, list[dict]]:
-        stuck_line = f'它卡在了：{blocker}' if blocker else '它没有说卡在哪里。'
-        user = prompts.STUDY_USER_TEMPLATE.format(work=work, stuck_line=stuck_line)
-        generated = llm.complete(prompts.STUDY_SYSTEM, user, max_tokens=900)
-
-        lead = (
-            f'你卡在「{blocker}」这里了。这很平常，卡住只是说明到了该换角度的地方。\n\n'
+    def _guidance(
+        self, work: str, blocker: str | None, api_key: str | None = None,
+    ) -> tuple[str, list[dict]]:
+        stuck_line = (
+            f'它自己提到可能有困难的地方：{blocker}'
             if blocker
-            else '先把这件事在心里放平，再看一遍。\n\n'
+            else '它没有单独说困难的地方。'
+        )
+        user = prompts.STUDY_USER_TEMPLATE.format(work=work, stuck_line=stuck_line)
+        generated = llm.complete(
+            prompts.STUDY_SYSTEM, user, role='study', max_tokens=900, api_key=api_key,
         )
         if generated:
-            body, phases = _complete_phases(generated)
-        else:
-            body, phases = STUDY_GUIDANCE, _parse_phases(STUDY_GUIDANCE)
-        return lead + body, phases
+            return _complete_phases(generated)
+        return _fallback(work, blocker)

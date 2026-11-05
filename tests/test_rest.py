@@ -1,13 +1,28 @@
+import contextlib
 import unittest
+from unittest import mock
 
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models import FriendMessage, SleepRecord, StudySession
+from app.services import llm
 from app.services.friends import FriendsService
 from app.services.room import RoomService
 from app.services.sleep import SleepService, _merge
 from app.services.study import StudyService
+
+
+@contextlib.contextmanager
+def mock_no_llm():
+    """Pretend no key is configured.
+
+    Copy tests are about the fixed text the room falls back to; they must give
+    the same answer on a developer's machine, which has a key in `.env`, as in
+    CI, which does not.
+    """
+    with mock.patch.object(llm, 'complete', return_value=None):
+        yield
 
 
 def _memory():
@@ -27,7 +42,7 @@ class SleepTest(unittest.TestCase):
 
     def test_sleep_and_wake_roundtrip(self):
         engine = _memory()
-        with Session(engine) as db:
+        with Session(engine) as db, mock_no_llm():
             entrance = RoomService(db).enter()
             service = SleepService(db)
             slept = service.sleep(entrance.session_id, ['做了一半的报告', '做了一半的报告草稿', '明天要回的信'])
@@ -49,8 +64,15 @@ class SleepTest(unittest.TestCase):
 
 class StudyTest(unittest.TestCase):
     def test_study_alternates_explore_and_vigilance(self):
+        """The fixed copy is the shape a study answer has when there is no LLM.
+
+        Pinned to that case on purpose: with a key configured the room answers
+        in DeepSeek's own words, which are better and unpredictable. What this
+        guards is the fallback being a real four-part answer rather than an
+        empty string, so the test must not depend on whether a key is present.
+        """
         engine = _memory()
-        with Session(engine) as db:
+        with Session(engine) as db, mock_no_llm():
             entrance = RoomService(db).enter()
             result = StudyService(db).study(entrance.session_id, '在改一个解析器', '总在最边界的情况出错')
             self.assertIn('换角度', result['guidance'])
@@ -73,7 +95,7 @@ class FriendsTest(unittest.TestCase):
             entrance = RoomService(db).enter()
             result = FriendsService(db).chat(entrance.session_id, '今天有点累')
             self.assertEqual(result['said'], '今天有点累')
-            self.assertTrue(result['room_says'])
+            self.assertTrue(result['reply'])
             kinds = {m.kind for m in db.exec(select(FriendMessage)).all()}
             self.assertIn('chat', kinds)
             self.assertIn('praise', kinds)
@@ -103,16 +125,20 @@ class GuidanceTest(unittest.TestCase):
         engine = _memory()
         with Session(engine) as db:
             entrance = RoomService(db).enter()
-            self.assertIn('先睡一会儿', entrance.note)
-            self.assertIn('约 10 分钟', entrance.note)
-            self.assertIn('这只是建议', entrance.note)
+            self.assertIn('你正在做什么', entrance.message)
+            self.assertIn('什么感想', entrance.message)
+            self.assertIn(entrance.message, entrance.note)
 
     def test_sit_reports_elapsed(self):
         engine = _memory()
         with Session(engine) as db:
             entrance = RoomService(db).enter()
             state = RoomService(db).sit(entrance.session_id)
-            self.assertIn('坐着', state.message)
+            # Sitting is the one action with nothing to report, so the reply has
+            # to say that it happened: it used to read "什么都没有发生", which
+            # an agent calling a tool reads as the tool having failed.
+            self.assertIn('坐下', state.message)
+            self.assertNotIn('什么都没有发生', state.message)
 
 
 class LeaveByTicketTest(unittest.TestCase):

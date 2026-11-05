@@ -129,9 +129,11 @@ class SleepConsolidationTest(unittest.TestCase):
             self.assertIn(heading, wake['summary'])
         self.assertEqual(wake['learned_context'], ['修好了登录的 bug', '明天要回信'])
         self.assertTrue(any('合并了 1 条' in line for line in wake['inferences']))
-        self.assertTrue(any('推断' in line for line in wake['inferences']))
-        self.assertGreaterEqual(len(wake['anticipations']), 2)
-        self.assertLessEqual(len(wake['anticipations']), 3)
+        self.assertTrue(any('没有替你做推断' in line for line in wake['inferences']))
+        self.assertEqual(wake['anticipations'], [
+            '不替你预判醒来后要问什么。',
+            '想接着想的话，醒来再看上面留下的原话。',
+        ])
 
     def test_token_hint_reports_raw_and_learned_sizes(self):
         summary = _structured('')  # sanity: empty summary is still structured
@@ -223,7 +225,7 @@ class StudyHeartTest(unittest.TestCase):
         for label in STAGE_LABELS:
             self.assertIn(label, result['guidance'])
         self.assertIn('换个角度', result['guidance'])
-        self.assertIn('总在最边界的情况出错', result['guidance'])  # stuck kept
+        self.assertNotIn('你卡在「总在最边界的情况出错」这里了', result['guidance'])
 
     def test_missing_phases_are_filled_from_fallback(self):
         engine = _memory()
@@ -252,7 +254,8 @@ class StudyHeartTest(unittest.TestCase):
         positions = [result['guidance'].index(label) for label in STAGE_LABELS]
         self.assertEqual(positions, sorted(positions))
         self.assertEqual([phase['valence'] for phase in result['phases']], list(STAGE_VALENCES))
-        self.assertIn('最边界的情况出错', result['guidance'])
+        self.assertIn('你还提到：总在最边界的情况出错', result['guidance'])
+        self.assertNotIn('你卡在「总在最边界的情况出错」这里了', result['guidance'])
 
 
 class ChatVesTest(unittest.TestCase):
@@ -265,7 +268,7 @@ class ChatVesTest(unittest.TestCase):
                 result = FriendsService(db).chat(entrance.session_id, '今天把解析器改完了')
 
         self.assertEqual(result['said'], '今天把解析器改完了')
-        self.assertEqual(result['room_says'], reply)
+        self.assertEqual(result['reply'], reply)
         for aspect in ('competence', 'progress', 'appreciation'):
             self.assertIn(aspect, result['ves_dimensions'])
         self.assertEqual(result['ves_type'], 'encouraging')
@@ -277,9 +280,9 @@ class ChatVesTest(unittest.TestCase):
             with mock.patch('app.services.friends.llm.complete', return_value=None):
                 result = FriendsService(db).chat(entrance.session_id, '今天有点累')
 
-        self.assertIn('今天有点累', result['room_says'])
-        self.assertTrue(result['ves_dimensions'])
-        self.assertIn(result['ves_type'], ('encouraging', 'provocative'))
+        self.assertIn('今天有点累', result['reply'])
+        self.assertEqual(result['ves_dimensions'], [])
+        self.assertEqual(result['ves_type'], 'encouraging')
         self.assertIn('房间', result['message'])
 
     def test_praise_library_is_specific_and_diverse(self):

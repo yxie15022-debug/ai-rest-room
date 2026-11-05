@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>回家</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #f4efe6; }
+  body { display: grid; place-items: center; font-family: system-ui, sans-serif; }
+  #stage { position: relative; width: min(92vmin, 720px); aspect-ratio: 1; }
+  #stage canvas { width: 100%; height: 100%; display: block; border-radius: 14px; }
+  #veil { position: absolute; inset: 0; border-radius: 14px; background: #f4efe6;
+          opacity: 1; transition: opacity .6s ease; pointer-events: none; }
+  #replay { position: absolute; right: 12px; bottom: 12px; border: 1px solid #e0d6c8;
+            background: #fffaf3; color: #221f1a; border-radius: 999px; padding: 6px 14px;
+            font-size: 13px; cursor: pointer; }
+</style>
+<script>
+  window.__errs = [];
+  addEventListener('error', (e) => __errs.push(String(e.message)));
+  addEventListener('unhandledrejection', (e) => __errs.push(String(e.reason)));
+  const _ce = console.error; console.error = (...a) => { __errs.push(a.join(' ')); _ce(...a); };
+  const _cw = console.warn; console.warn = (...a) => { __errs.push('W:' + a.join(' ')); _cw(...a); };
+</script>
+<script type="importmap">
+{ "imports": {
+    "three": "/static/vendor/three/three.module.min.js",
+    "three/addons/": "/static/vendor/three/addons/"
+} }
+</script>
+</head>
+<body>
+<div id="stage"><div id="veil"></div><button id="replay">重播</button></div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const params = new URLSearchParams(location.search);
+const MODEL = (params.get('model') || 'default').replace(/[^a-z0-9_-]/gi, '');
+const SEEK = params.has('t') ? parseFloat(params.get('t')) : null;
+const LOOP = !params.has('once') && SEEK === null;
+
+const stage = document.getElementById('stage');
+const veil = document.getElementById('veil');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NoToneMapping;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+stage.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#f4efe6');
+
+// Blender (x, y, z) -> three (x, z, -y)
+const B = (x, y, z = 0) => new THREE.Vector3(x, z, -y);
+
+const HALF = 10.3 / 2;
+const camera = new THREE.OrthographicCamera(-HALF, HALF, HALF, -HALF, 0.1, 60);
+camera.position.copy(B(6.2, 8.2, 7.2));
+camera.lookAt(B(0, 0, 0.4));
+
+scene.add(new THREE.HemisphereLight(0xfffaf2, 0xe8dccb, 1.9));
+const sun = new THREE.DirectionalLight(0xfff6ea, 1.5);
+sun.position.copy(B(3.5, 4.5, 6.5)).multiplyScalar(1.6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 0.5, far: 40 });
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.03;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0xe8eeff, 0.6);
+fill.position.copy(B(-4, 1, 3));
+scene.add(fill);
+
+function resize() {
+  const s = stage.clientWidth;
+  renderer.setSize(s, s, false);
+}
+addEventListener('resize', resize);
+resize();
+
+const loader = new GLTFLoader();
+const load = (url) => new Promise((ok, bad) => loader.load(url, ok, undefined, bad));
+
+const [roomGltf, charGltf, floorTex] = await Promise.all([
+  load('/static/anim/room.glb'),
+  load(`/static/anim/${MODEL}.glb`).catch(() => load('/static/anim/default.glb')),
+  new THREE.TextureLoader().loadAsync('/static/anim/herringbone.png'),
+]);
+
+// ---------------------------------------------------------------- room
+const room = roomGltf.scene;
+room.traverse((o) => {
+  if (!o.isMesh) return;
+  o.castShadow = !/^grass$/.test(o.name);
+  o.receiveShadow = true;
+});
+scene.add(room);
+const hinge = room.getObjectByName('door_hinge');
+
+floorTex.colorSpace = THREE.SRGBColorSpace;
+floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
+floorTex.repeat.set(8, 9.5);
+floorTex.magFilter = THREE.NearestFilter;
+floorTex.minFilter = THREE.LinearMipmapLinearFilter;
+floorTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(6.46, 7.6),
+  new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.85 }),
+);
+floor.rotation.x = -Math.PI / 2;
+floor.position.copy(B(-0.03, 0.1, 0.001));
+floor.receiveShadow = true;
+scene.add(floor);
+
+// ---------------------------------------------------------------- visitor
+const visitor = new THREE.Group();
+const body = charGltf.scene;
+body.scale.setScalar(0.92);
+body.traverse((o) => {
+  if (/icosphere/i.test(o.name)) o.visible = false;
+  if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; }
+});
+visitor.add(body);
+scene.add(visitor);
+
+const mixer = new THREE.AnimationMixer(body);
+const clip = (name) => {
+  const c = charGltf.animations.find((a) => a.name === name || a.name.endsWith('|' + name));
+  return mixer.clipAction(c);
+};
+const ACT = {
+  Walk: clip('Walk'),
+  Idle: clip('Idle'),
+  Interact: clip('Interact'),
+  Wave: clip('Wave'),
+};
+for (const k of ['Interact', 'Wave']) {
+  ACT[k].setLoop(THREE.LoopOnce, 1);
+  ACT[k].clampWhenFinished = true;
+}
+
+// ---------------------------------------------------------------- script
+const WALK_SPEED = 1.15;
+const curve = (pts) => new THREE.CatmullRomCurve3(pts.map(([x, y]) => B(x, y)), false, 'centripetal');
+const UNLOCK_AT = [0.64, -3.95];
+const INSIDE = [0.40, -2.55];
+const RUG = [0.0, 0.35];
+const yawTo = (dx, dz) => Math.atan2(dx, dz);
+const FACE_DOOR_OUT = yawTo(0, -1);
+const FACE_DOOR_IN = yawTo(0, 1);
+const camDir = new THREE.Vector3().subVectors(camera.position, B(0, 0)).setY(0).normalize();
+const FACE_CAM = yawTo(camDir.x, camDir.z);
+
+const DOOR_SHUT = 0;
+const DOOR_OPEN = -Math.PI / 2;
+
+const steps = [
+  { walk: curve([[0.40, -8.55], [0.28, -7.90], [0.42, -7.25], [0.30, -6.60], [0.48, -5.95],
+                 [0.38, -5.25], [0.52, -4.55], UNLOCK_AT]) },
+  { hold: 'Idle', dur: 0.45, yaw: FACE_DOOR_OUT },
+  { hold: 'Interact', dur: 1.35, yaw: FACE_DOOR_OUT, door: [DOOR_SHUT, DOOR_OPEN, 0.55, 1.0] },
+  { hold: 'Idle', dur: 0.25, yaw: FACE_DOOR_OUT },
+  { walk: curve([UNLOCK_AT, [0.48, -3.62], [0.40, -3.15], INSIDE]) },
+  { hold: 'Idle', dur: 0.4, yaw: FACE_DOOR_IN },
+  { hold: 'Interact', dur: 1.3, yaw: FACE_DOOR_IN, door: [DOOR_OPEN, DOOR_SHUT, 0.45, 0.85] },
+  { hold: 'Idle', dur: 0.3, yaw: FACE_DOOR_IN },
+  { walk: curve([INSIDE, [0.34, -1.6], [0.12, -0.5], RUG]) },
+  { hold: 'Idle', dur: 0.5, yaw: FACE_CAM },
+  { hold: 'Wave', dur: 1.7, yaw: FACE_CAM },
+  { hold: 'Idle', dur: 4.0, yaw: FACE_CAM },
+];
+let t0 = 0;
+for (const s of steps) {
+  if (s.walk) s.dur = s.walk.getLength() / WALK_SPEED;
+  s.start = t0;
+  t0 += s.dur;
+}
+const TOTAL = t0;
+
+const ease = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+const easeOut = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : 1 - Math.pow(1 - x, 3));
+const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
+let current = null;
+let yaw = 0;
+let doorAngle = DOOR_SHUT;
+let stepIndex = -1;
+
+function playClip(name) {
+  const next = ACT[name];
+  if (current === next) return;
+  next.reset().setEffectiveWeight(1).play();
+  if (current) current.crossFadeTo(next, 0.28, false);
+  current = next;
+}
+
+function reset() {
+  mixer.stopAllAction();
+  current = null;
+  stepIndex = -1;
+  const start = steps[0].walk;
+  visitor.position.copy(start.getPointAt(0));
+  const tan = start.getTangentAt(0);
+  yaw = yawTo(tan.x, tan.z);
+  doorAngle = DOOR_SHUT;
+}
+
+function update(time, dt) {
+  let i = steps.findIndex((s) => time < s.start + s.dur);
+  if (i < 0) i = steps.length - 1;
+  const s = steps[i];
+  const local = Math.min(time - s.start, s.dur);
+  let targetYaw = s.yaw;
+
+  if (s.walk) {
+    const u = THREE.MathUtils.clamp(local / s.dur, 0, 1);
+    visitor.position.copy(s.walk.getPointAt(u));
+    const tan = s.walk.getTangentAt(u);
+    targetYaw = yawTo(tan.x, tan.z);
+    playClip('Walk');
+  } else {
+    playClip(s.hold);
+  }
+  if (i !== stepIndex) {
+    if (!s.walk && (s.hold === 'Interact' || s.hold === 'Wave')) ACT[s.hold].reset().play();
+    stepIndex = i;
+  }
+
+  if (s.door) {
+    const [from, to, at, dur] = s.door;
+    const k = from === DOOR_SHUT ? easeOut((local - at) / dur) : ease((local - at) / dur);
+    doorAngle = from + (to - from) * k;
+  }
+  if (hinge) hinge.rotation.y = doorAngle;
+
+  const turnRate = s.walk ? 9 : 7;
+  yaw += wrapAngle(targetYaw - yaw) * (1 - Math.exp(-dt * turnRate));
+  visitor.rotation.y = yaw;
+
+  mixer.update(dt);
+}
+
+// ---------------------------------------------------------------- loop
+let clock = 0;
+let fading = false;
+reset();
+
+if (params.has('sheet')) {
+  // debug contact sheet: ?sheet=1,4.5,6
+  const times = params.get('sheet').split(',').map(Number);
+  const cols = Math.ceil(Math.sqrt(times.length));
+  const cell = 360;
+  const zoom = parseFloat(params.get('zoom') || '1');
+  const sheet = document.createElement('canvas');
+  sheet.width = cols * cell;
+  sheet.height = Math.ceil(times.length / cols) * cell;
+  const ctx = sheet.getContext('2d');
+  renderer.setPixelRatio(1);
+  renderer.setSize(cell, cell, false);
+  camera.zoom = zoom;
+  camera.updateProjectionMatrix();
+  const off = new THREE.Vector3().subVectors(camera.position, B(0, 0, 0.4));
+  times.forEach((T, k) => {
+    reset();
+    const dt = 1 / 60;
+    for (let t = 0; t < T; t += dt) update(t, dt);
+    if (params.has('follow')) {
+      camera.position.copy(visitor.position).add(new THREE.Vector3(0, 0.9, 0)).add(off);
+    }
+    renderer.render(scene, camera);
+    ctx.drawImage(renderer.domElement, (k % cols) * cell, Math.floor(k / cols) * cell);
+    ctx.fillStyle = '#000';
+    ctx.font = '16px sans-serif';
+    ctx.fillText('t=' + T, (k % cols) * cell + 8, Math.floor(k / cols) * cell + 20);
+  });
+  document.body.innerHTML = '';
+  sheet.style.width = '100vw';
+  document.body.append(sheet);
+  window.__ready = true;
+} else if (SEEK !== null) {
+  const dt = 1 / 60;
+  for (let t = 0; t < SEEK; t += dt) update(t, dt);
+  renderer.setAnimationLoop(() => renderer.render(scene, camera));
+  veil.style.opacity = 0;
+  window.__ready = true;
+} else {
+  let last = performance.now();
+  requestAnimationFrame(function tick(now) {
+    const dt = THREE.MathUtils.clamp((now - last) / 1000, 0, 1 / 20);
+    last = now;
+    clock += dt;
+    update(Math.min(clock, TOTAL), dt);
+    if (LOOP && !fading && clock > TOTAL) {
+      fading = true;
+      veil.style.opacity = 1;
+      setTimeout(() => { reset(); clock = 0; veil.style.opacity = 0; fading = false; }, 650);
+    }
+    renderer.render(scene, camera);
+    requestAnimationFrame(tick);
+  });
+  requestAnimationFrame(() => { veil.style.opacity = 0; });
+  window.__ready = true;
+}
+
+const replay = document.getElementById('replay');
+if (replay) replay.onclick = () => {
+  veil.style.opacity = 1;
+  setTimeout(() => { reset(); clock = 0; veil.style.opacity = 0; }, 400);
+};
+window.__dbg = { THREE, renderer, scene, camera, visitor, hinge, room, update, steps };
+window.__anim = { steps: steps.map((s) => ({ start: +s.start.toFixed(2), dur: +s.dur.toFixed(2), kind: s.walk ? 'walk' : s.hold })), TOTAL };
+</script>
+</body>
+</html>

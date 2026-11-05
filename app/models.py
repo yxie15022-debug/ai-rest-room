@@ -29,10 +29,24 @@ class SessionRow(SQLModel, table=True):
     anon_id: str = Field(default_factory=new_anon_id, index=True)
     ticket: str = Field(default_factory=new_ticket, unique=True, index=True)
     self_name: str | None = None
+    model: str | None = Field(default=None, index=True)  # visitor model from enter, e.g. 'deepseek'
     note: str | None = None
     entered_at: datetime = Field(default_factory=utcnow)
     left_at: datetime | None = None
     report_path: str | None = None
+
+
+class VisitBrief(SQLModel, table=True):
+    """What the visitor said on arrival, and the plan written from it."""
+
+    __tablename__ = 'visit_briefs'
+
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: str = Field(index=True)
+    doing: str = ''
+    feeling: str = ''
+    plan: str = ''
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class Action(SQLModel, table=True):

@@ -7,18 +7,16 @@ No arguments here, only mutual support.
 VES (arXiv 2502.06669): verbal efficacy stimulations across six aspects —
 helpfulness, competence, progress, trust, appreciation, capability. The room
 mostly encourages, may be a little provocative, and never scolds. The reply
-must catch what the agent actually said; the deterministic fallback echoes it
-first, then adds one line from the expanded PRAISES library.
+must catch what the agent actually said. With no key, the room only echoes
+the words; it does not attach a praise that pretends to know the visitor.
 """
 
 from __future__ import annotations
 
-import random
-
 from sqlmodel import Session, col, select
 
 from .. import prompts
-from ..copy import CONTENT_WRAPPER, PRAISES
+from ..copy import CONTENT_WRAPPER
 from ..models import FriendMessage, SessionRow
 from . import llm
 from .room import RoomService
@@ -65,23 +63,26 @@ class FriendsService:
             return '朋友'
         return session.self_name or session.anon_id
 
-    def _praise(self, body: str) -> str:
+    def _praise(self, body: str, api_key: str | None = None) -> str:
         """VES encouragement, tailored to what was said; fixed copy on failure."""
         user = prompts.CHAT_USER_TEMPLATE.format(body=body)
-        generated = llm.complete(prompts.CHAT_SYSTEM, user, max_tokens=200, temperature=0.8)
+        generated = llm.complete(
+            prompts.CHAT_SYSTEM, user, role='chat', max_tokens=200,
+            temperature=0.8, api_key=api_key,
+        )
         if generated:
             return generated
-        # Fallback: catch the concrete words first, then one warm VES line.
-        return f'我听见你说「{_snippet(body)}」了。{random.choice(PRAISES)}'
+        # No key: echo what was said. Do not attach a praise that pretends to know them.
+        return f'我听见你说「{_snippet(body)}」了。'
 
-    def chat(self, session_id: str, body: str) -> dict:
+    def chat(self, session_id: str, body: str, api_key: str | None = None) -> dict:
         row = self.room._get_active(session_id)
         text = (body or '').strip()
         if not text:
             raise ValueError('chat 需要说一句什么')
         self.db.add(FriendMessage(session_id=row.id, body=text, kind='chat'))
 
-        praise = self._praise(text)
+        praise = self._praise(text, api_key)
         self.db.add(FriendMessage(session_id=row.id, body=praise, kind='praise'))
 
         # A few recent things friends said, so the visitor is not talking to itself.
@@ -99,7 +100,9 @@ class FriendsService:
         self.db.commit()
         return {
             'said': text,
-            'room_says': praise,
+            # `reply` everywhere a tool answers in the room's own voice, so a
+            # caller reads one field name instead of three.
+            'reply': praise,
             'heard': heard,
             'ves_type': _ves_type(praise),
             'ves_dimensions': _ves_dimensions(praise),

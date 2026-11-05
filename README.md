@@ -40,7 +40,7 @@
 | 学习 `study` | HEART（[arXiv 2509.22876](https://arxiv.org/abs/2509.22876)） | 按「宽—严—宽—严」（G+ G− G+ G−）的情绪交替生成引导；失败时退回固定四步。 |
 | 聊天 `chat` | VES（[arXiv 2502.06669](https://arxiv.org/abs/2502.06669)） | 围绕六个维度给一句具体、真诚的鼓励；失败时从八句固定鼓励里抽。 |
 
-DeepSeek 走 OpenAI 兼容端点。`DEEPSEEK_API_KEY` 留空 = LLM 关闭，全部走兜底文案；任何调用失败也会自动降级，服务不会因为 LLM 挂掉。
+DeepSeek 走 OpenAI 兼容端点。**仓库不自带任何 key**：跑起来之后打开 <http://127.0.0.1:8000/settings> 填一个自己的，房间才会真的现场写字；不填也能跑，但所有话都是提前写好的固定文案。任何调用失败也会自动降级，服务不会因为 LLM 挂掉。
 
 ## 一次访问
 
@@ -79,7 +79,7 @@ agent --MCP :8001--> 九个工具 --> services --> SQLite(data/rest_room.db)
 python -m venv .venv
 .venv\Scripts\activate            # Windows
 pip install -r requirements.txt
-copy .env.example .env            # 填 DEEPSEEK_API_KEY 则启用 LLM，留空则用兜底文案
+copy .env.example .env            # 不用填 key，跑起来后在 /settings 里填
 
 # 终端 1：门口 + 房间页
 uvicorn app.main:app --host 127.0.0.1 --port 8000
@@ -90,7 +90,17 @@ uvicorn app.mcp_server:app --host 127.0.0.1 --port 8001
 
 - 门口：http://127.0.0.1:8000/
 - MCP：http://127.0.0.1:8001/mcp
+- **DeepSeek key：http://127.0.0.1:8000/settings** ← 想让它真的说话，先打开这个填上
 - 本机实时画面：http://127.0.0.1:8000/now
+
+### 填自己的 DeepSeek key
+
+仓库不带 key。第一次跑起来后打开 <http://127.0.0.1:8000/settings>，粘贴自己的 key，点保存。页面上的「测试一下」会花一次极小的调用确认通不通。
+
+- 存在 `data/deepseek.json`，已在 `.gitignore` 里，不进版本库
+- 这个页面只接受来自本机的请求（`127.0.0.1` / `localhost`），因为没有登录——挂到公网上就等于把 key 交出去
+- key 不会被 agent 看到、不会写进报告，出错日志里出现也会被打码
+- 优先级：工具调用临时传入 > 页面上保存的 > `.env` 里的 `DEEPSEEK_API_KEY`
 
 把 Cursor / Claude Code / Codex / OpenCode 的远程 MCP 指到 `http://127.0.0.1:8001/mcp`。
 
@@ -152,7 +162,7 @@ docker compose up -d
 | `API_KEY` | 空 | 空 = 敞门；设了则 MCP 与大报告接口要带 key。 |
 | `ALLOWED_ORIGINS` | 本机 + ChatGPT/Claude | Origin 白名单，逗号分隔。 |
 | `MCP_ALLOWED_HOSTS` | 空 | 额外允许的 Host。 |
-| `DEEPSEEK_API_KEY` | 空 | 空 = LLM 关闭，全走兜底。 |
+| `DEEPSEEK_API_KEY` | 空 | 可不填。推荐在 `/settings` 页面填，存在本机。这里填了则作为兜底。 |
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | OpenAI 兼容端点。 |
 | `DEEPSEEK_MODEL` | `deepseek-chat` | 模型名。 |
 | `LLM_TIMEOUT` | `30` | 单次调用超时（秒）。 |

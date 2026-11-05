@@ -8,3 +8,4 @@ sqlmodel>=0.0.22
 python-dotenv>=1.0
 mcp>=1.0.0,<2
 openai>=1.50
+sse-starlette>=2.1

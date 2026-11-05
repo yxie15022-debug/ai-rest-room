@@ -9,12 +9,27 @@ __pycache__/
 .pytest_cache/
 .dsh-test/
 .dsh-backup/
-data/_*/
+data/_*
 data/*.db
 # stray temp dirs (the sandbox tempdir resolves to the repo root)
 ai-rest-room-tests-*/
 ai-rest-room-smoke-*/
+ai-rest-room-pet/
 rest-room-frames-*/
+EBWebView/
+# the DeepSeek key the person running this room saved on /settings
+data/deepseek.json
 data/reports/*.md
 !data/reports/.gitkeep
+# database backups written next to the db when cleaning up
+rest_room.*.db
 plugin/frames/mascot/*/_interp/
+
+# third-party asset packs (licensed, not ours to redistribute)
+assets/
+# downloaded character models: CC0, but re-fetch them with the registry instead
+# of shipping a few megabytes of someone else's mesh in the repo
+data/characters/**/*.glb
+app/static/anim/*.glb
+scripts/_*
+

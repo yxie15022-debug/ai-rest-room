@@ -1,4 +1,10 @@
-"""Open the custom scene window once per visit (not the system browser)."""
+"""Open the custom scene window once per visit (not the system browser).
+
+A fallback, these days: the MCP server opens the room itself the moment an
+agent connects, which is sooner and does not depend on the host running hooks.
+This still covers a host whose server cannot reach a desktop -- and stands down
+when that server has already put a window up.
+"""
 
 from __future__ import annotations
 
@@ -13,10 +19,14 @@ from pathlib import Path
 TICKET = re.compile(r'[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}', re.IGNORECASE)
 ROOM = re.compile(r'https?://[^\s"\\]+/r/(' + TICKET.pattern + r')', re.IGNORECASE)
 STATE = Path.home() / '.ai-rest-room-window'
+# What the state file says instead of a ticket when the MCP server owns the
+# window. Its room follows the whole session, so it outlives any one ticket.
+SERVER_OWNED = 'session'
 LOG = Path.home() / '.ai-rest-room-hook.log'
 LOCAL_STATE = 'http://127.0.0.1:8000/now/state'
 SCRIPT_DIR = Path(__file__).resolve().parent
 SCENE_WINDOW = SCRIPT_DIR / 'scene_window.py'
+PET_WINDOW = SCRIPT_DIR / 'pet_window.py'
 
 
 def log(line: str) -> None:
@@ -50,18 +60,22 @@ def ticket_from_server() -> str | None:
 
 
 def _read_state() -> tuple[str | None, int | None]:
+    """Who the open window belongs to: a ticket, `SERVER_OWNED`, or nobody."""
     if not STATE.is_file():
         return None, None
     lines = STATE.read_text(encoding='utf-8').strip().splitlines()
     if not lines:
         return None, None
-    ticket = lines[0].strip().upper()
+    owner = lines[0].strip()
     pid: int | None = None
     if len(lines) > 1:
         try:
             pid = int(lines[1].strip())
         except ValueError:
             pid = None
+    if owner == SERVER_OWNED:
+        return SERVER_OWNED, pid
+    ticket = owner.upper()
     if not TICKET.fullmatch(ticket):
         return None, pid
     return ticket, pid
@@ -105,9 +119,35 @@ def _stop_window(pid: int) -> None:
             pass
 
 
-def launch_window(ticket: str) -> int | None:
-    if not SCENE_WINDOW.is_file():
-        log('missing scene_window.py')
+def _has_webview() -> bool:
+    """Whether this interpreter can host the animated window."""
+    try:
+        done = subprocess.run(
+            [sys.executable, '-c', 'import webview'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+            check=False,
+        )
+    except Exception:
+        return False
+    return done.returncode == 0
+
+
+def pick_window() -> Path | None:
+    """The animated room if pywebview is there, else the frame player."""
+    if PET_WINDOW.is_file() and _has_webview():
+        return PET_WINDOW
+    if SCENE_WINDOW.is_file():
+        return SCENE_WINDOW
+    return None
+
+
+def launch_window(ticket: str) -> tuple[Path, int] | None:
+    """Start a window; returns which script it is and its pid."""
+    window = pick_window()
+    if window is None:
+        log('no window script available')
         return None
     # Use pythonw.exe on Windows so no console/taskbar icon appears
     python = sys.executable
@@ -118,15 +158,19 @@ def launch_window(ticket: str) -> int | None:
     creationflags = 0
     if sys.platform == 'win32':
         creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    log('window script %s' % window.name)
+    # The pet finds the visit itself and keeps following the next one, so it
+    # wants no ticket; the frame player plays exactly one and needs it.
+    args = [] if window == PET_WINDOW else ['--ticket', ticket]
     proc = subprocess.Popen(
-        [python, str(SCENE_WINDOW), '--ticket', ticket],
+        [python, str(window), *args],
         cwd=str(SCRIPT_DIR),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         creationflags=creationflags,
     )
-    return proc.pid
+    return window, proc.pid
 
 
 def main() -> int:
@@ -138,6 +182,12 @@ def main() -> int:
         return 0
 
     prev_ticket, prev_pid = _read_state()
+    if prev_ticket == SERVER_OWNED and prev_pid is not None and _pid_alive(prev_pid):
+        # The server's own room is already up and follows the whole session;
+        # a second window would only cover it.
+        log('server owns the window pid=%s' % prev_pid)
+        return 0
+
     if prev_ticket == ticket and prev_pid is not None and _pid_alive(prev_pid):
         log('window already open for %s pid=%s' % (ticket, prev_pid))
         return 0
@@ -148,11 +198,15 @@ def main() -> int:
             log('replaced window, old ticket %s left' % prev_ticket)
         _stop_window(prev_pid)
 
-    pid = launch_window(ticket)
-    if pid is None:
+    started = launch_window(ticket)
+    if started is None:
         return 1
-    STATE.write_text('%s\n%s\n' % (ticket, pid), encoding='utf-8')
-    log('scene window ticket=%s pid=%s' % (ticket, pid))
+    window, pid = started
+    # A pet outlives the ticket that prompted it, so it is recorded the same
+    # way the server records its own: by session, not by visit.
+    owner = SERVER_OWNED if window == PET_WINDOW else ticket
+    STATE.write_text('%s\n%s\n' % (owner, pid), encoding='utf-8')
+    log('scene window owner=%s ticket=%s pid=%s' % (owner, ticket, pid))
     return 0
 
 

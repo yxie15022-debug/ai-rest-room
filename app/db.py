@@ -21,6 +21,24 @@ def create_db_and_tables() -> None:
 
     SQLModel.metadata.create_all(engine)
     ensure_ticket_column()
+    ensure_model_column()
+
+
+def ensure_model_column(bound=None) -> None:
+    """SQLite create_all does not add the visitor-model column to an existing sessions table."""
+    target = bound or engine
+    if not str(target.url).startswith('sqlite'):
+        return
+    with target.begin() as conn:
+        found = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'")
+        ).first()
+        if found is None:
+            return
+        columns = {row[1] for row in conn.execute(text('PRAGMA table_info(sessions)')).fetchall()}
+        if 'model' not in columns:
+            conn.execute(text('ALTER TABLE sessions ADD COLUMN model TEXT'))
+        conn.execute(text('CREATE INDEX IF NOT EXISTS ix_sessions_model ON sessions(model)'))
 
 
 def ensure_ticket_column(bound=None) -> None:
